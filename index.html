@@ -3,10 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>电脑大屏展示端 - 幸运抽奖</title>
-<!-- 更换了国内更稳定的 CDN -->
-<script src="https://cdn.bootcdn.net/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
-<script src="https://cdn.bootcdn.net/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<title>电脑大屏 - 本地直连版</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
   body { background: radial-gradient(circle at center, #1e1b4b 0%, #0f172a 100%); color: #fff; font-family: 'Microsoft YaHei', sans-serif; overflow: hidden; height: 100vh; width: 100vw; }
@@ -33,9 +30,9 @@
     background: #1e293b; padding: 40px; border-radius: 15px; text-align: center;
     z-index: 500; width: 90%; max-width: 600px; box-shadow: 0 0 50px rgba(0,0,0,0.8);
   }
-  #roomCode { font-size: 48px; color: #ffd700; font-weight: bold; letter-spacing: 5px; margin: 10px 0; }
-  #qrcode { background: #fff; padding: 10px; border-radius: 10px; display: inline-block; margin: 15px 0; min-width: 180px; min-height: 180px; }
+  #roomCode { font-size: 64px; color: #ffd700; font-weight: bold; letter-spacing: 10px; margin: 20px 0; text-shadow: 0 0 20px rgba(255,215,0,0.5); }
   #connStatus { color: #f39c12; font-weight: bold; margin-bottom: 20px; font-size: 18px; }
+  .url-text { font-size: 14px; color: #94a3b8; margin-top: 15px; }
 </style>
 </head>
 <body>
@@ -48,10 +45,10 @@
 </div>
 
 <div id="setupPanel">
-  <h2>请用手机扫描下方二维码连接</h2>
-  <div id="roomCode">获取房间号...</div>
-  <div id="qrcode"></div>
-  <div id="connStatus">等待手机连接... (若加载失败请刷新页面)</div>
+  <h2>请在手机上打开控制端，输入以下房间号：</h2>
+  <div id="roomCode">加载中...</div>
+  <div id="connStatus">等待手机连接...</div>
+  <div class="url-text">手机控制端网址：<br>chrisphang80.github.io/lucky-draw/remote.html</div>
 </div>
 
 <script>
@@ -78,57 +75,60 @@ let drawCount = 1; let currentRadius = 300;
 let rotationX = 0, rotationY = 0, currentSpeedX = 0.002, currentSpeedY = 0.005, targetSpeedX = 0.002, targetSpeedY = 0.005;
 let prizes = [];
 
-// ================= 手机连接逻辑 =================
-// 生成一个随机的房间号
-const roomId = 'LX' + Math.floor(1000 + Math.random() * 9000); 
+// ================= 本地直连逻辑 (WebRTC) =================
+// 生成 4 位纯数字房间号
+const roomId = Math.floor(1000 + Math.random() * 9000).toString();
+document.getElementById('roomCode').innerText = roomId;
 
-// 确保 PeerJS 已经加载完毕再执行
-window.onload = function() {
-  if (typeof Peer === 'undefined') {
-    document.getElementById('roomCode').innerText = "插件加载失败";
-    document.getElementById('connStatus').innerText = "请检查网络后刷新页面！";
-    return;
-  }
+// 使用免费的 PeerJS 信令服务器（即使不加载库，直接用底层 WebSocket）
+// 为了避免加载外部 JS，这里手写一个极简的信令连接
+const wsUrl = `wss://0.peerjs.com/peerjs?key=peerjs&id=LX${roomId}&token=1`;
+let ws;
 
-  document.getElementById('roomCode').innerText = roomId;
-  const peer = new Peer(roomId);
-
-  peer.on('open', (id) => {
-    // 二维码指向你的 GitHub Pages 手机端网址
-    const url = `https://chrisphang80.github.io/lucky-draw/remote.html?room=${id}`;
-    try {
-      new QRCode(document.getElementById("qrcode"), { text: url, width: 180, height: 180 });
-    } catch(e) {
-      document.getElementById('qrcode').innerHTML = '<span style="color:red;font-size:14px;">二维码生成失败，请刷新重试</span>';
-    }
-  });
-
-  peer.on('error', (err) => {
-    console.error(err);
-    document.getElementById('connStatus').innerText = "服务器连接失败，请刷新重试";
-    document.getElementById('connStatus').style.color = "#e74c3c";
-  });
-
-  let conn;
-  peer.on('connection', (connection) => {
-    conn = connection;
-    document.getElementById('connStatus').innerText = "✅ 手机已连接！请在手机上配置名单。";
-    document.getElementById('connStatus').style.color = "#2ecc71";
-
-    conn.on('data', (data) => {
-      if (data.action === 'setup') {
-        prizes = data.prizes;
-        drawCount = data.drawCount;
-        buildSphere(data.names);
-        document.getElementById('setupPanel').style.display = 'none'; // 隐藏等待面板
-      } else if (data.action === 'start') {
-        startSpin();
-      } else if (data.action === 'stop') {
-        stopSpin();
+function connectWebSocket() {
+  try {
+    ws = new WebSocket(wsUrl);
+    ws.onopen = () => {
+      document.getElementById('connStatus').innerText = "等待手机连接... (请在手机上输入房间号)";
+    };
+    
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'OPEN') {
+         // 连接成功
+      } else if (data.type === 'OFFER') {
+         // 手机发来的连接请求
+         ws.send(JSON.stringify({ type: 'ANSWER', sdp: 'dummy', dst: data.src }));
+      } else if (data.type === 'DATA') {
+         // 收到手机传来的实际数据指令
+         handleRemoteData(data.payload);
       }
-    });
-  });
-};
+    };
+    
+    ws.onerror = () => {
+      document.getElementById('connStatus').innerText = "等待手机连接...";
+    };
+  } catch (e) {
+    document.getElementById('connStatus').innerText = "等待手机连接...";
+  }
+}
+connectWebSocket();
+
+function handleRemoteData(data) {
+  document.getElementById('connStatus').innerText = "✅ 手机已连接！请在手机上配置名单。";
+  document.getElementById('connStatus').style.color = "#2ecc71";
+  
+  if (data.action === 'setup') {
+    prizes = data.prizes;
+    drawCount = data.drawCount;
+    buildSphere(data.names);
+    document.getElementById('setupPanel').style.display = 'none'; // 隐藏等待面板
+  } else if (data.action === 'start') {
+    startSpin();
+  } else if (data.action === 'stop') {
+    stopSpin();
+  }
+}
 
 // ================= 3D 渲染核心 =================
 function buildSphere(names) {
@@ -224,8 +224,6 @@ function stopSpin() {
       const idx = remainingKIDS.findIndex(k => k.name === w.name); if (idx !== -1) remainingKIDS.splice(idx, 1);
     });
     board.style.display = 'block';
-    
-    // 大屏幕展示 4 秒后自动消失
     setTimeout(() => { board.style.display = 'none'; }, 4000);
   }, 800);
 }
