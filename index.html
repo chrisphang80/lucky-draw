@@ -3,236 +3,74 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>电脑大屏 - 本地直连版</title>
+<title>手机控制端</title>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-  body { background: radial-gradient(circle at center, #1e1b4b 0%, #0f172a 100%); color: #fff; font-family: 'Microsoft YaHei', sans-serif; overflow: hidden; height: 100vh; width: 100vw; }
-  #stars, #sphereContainer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-  #stars { z-index: 0; pointer-events: none; }
-  #sphereContainer { z-index: 1; perspective: 1200px; overflow: hidden; }
-  
-  .name-tag { position: absolute; color: #fff; font-size: 16px; font-weight: bold; white-space: nowrap; will-change: transform, opacity; }
-  .winner-tag { color: #ffd700 !important; text-shadow: 0 0 15px #ffd700, 0 0 30px #ff8c00 !important; z-index: 999; }
-  
-  #resultBoard {
-    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    background: rgba(0,0,0,0.85); border: 2px solid #ffd700; border-radius: 15px;
-    padding: 40px 60px; text-align: center; z-index: 200; display: none;
-    box-shadow: 0 0 50px rgba(255, 215, 0, 0.6); width: 85%; max-width: 900px;
-  }
-  #resultGift { font-size: 28px; color: #00d2ff; margin-bottom: 20px; font-weight: bold; }
-  #winnerNamesContainer { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; }
-  .winner-name { font-size: 48px; font-weight: bold; color: #ffd700; text-shadow: 0 0 20px #ffd700; }
-
-  /* 初始连接面板 */
-  #setupPanel {
-    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    background: #1e293b; padding: 40px; border-radius: 15px; text-align: center;
-    z-index: 500; width: 90%; max-width: 600px; box-shadow: 0 0 50px rgba(0,0,0,0.8);
-  }
-  #roomCode { font-size: 64px; color: #ffd700; font-weight: bold; letter-spacing: 10px; margin: 20px 0; text-shadow: 0 0 20px rgba(255,215,0,0.5); }
-  #connStatus { color: #f39c12; font-weight: bold; margin-bottom: 20px; font-size: 18px; }
-  .url-text { font-size: 14px; color: #94a3b8; margin-top: 15px; }
+  body { background: #0f172a; color: #fff; font-family: sans-serif; padding: 20px; text-align: center; }
+  .status { font-size: 18px; color: #f39c12; margin-bottom: 20px; }
+  .btn { width: 100%; height: 100px; border-radius: 15px; border: none; font-size: 32px; font-weight: bold; color: #fff; margin-top: 20px; }
+  #startBtn { background: #2ecc71; display: none; }
+  #stopBtn { background: #e74c3c; display: none; }
+  #setupArea { display: none; text-align: left; }
+  textarea { width: 100%; height: 200px; padding: 10px; border-radius: 8px; }
+  .setup-btn { width: 100%; padding: 15px; background: #3498db; color: white; border: none; border-radius: 8px; font-size: 18px; }
 </style>
 </head>
 <body>
-<canvas id="stars"></canvas>
-<div id="sphereContainer"></div>
+<div id="status" class="status">正在加载...</div>
 
-<div id="resultBoard">
-  <div id="resultGift"></div>
-  <div id="winnerNamesContainer"></div>
+<div id="setupArea">
+  <h3>粘贴学生名单</h3>
+  <textarea id="nameInput" placeholder="每行一个名字"></textarea>
+  <button class="setup-btn" id="sendSetupBtn" style="margin-top:10px;">发送名单到大屏幕</button>
 </div>
 
-<div id="setupPanel">
-  <h2>请在手机上打开控制端，输入以下房间号：</h2>
-  <div id="roomCode">加载中...</div>
-  <div id="connStatus">等待手机连接...</div>
-  <div class="url-text">手机控制端网址：<br>chrisphang80.github.io/lucky-draw/remote.html</div>
-</div>
+<button class="btn" id="startBtn">开 始</button>
+<button class="btn" id="stopBtn">停 止</button>
 
 <script>
-// ================= 音效引擎 =================
-const AudioContext = window.AudioContext || window.webkitAudioContext;
-let audioCtx;
-function initAudio() { if (!audioCtx) audioCtx = new AudioContext(); }
-function playTone(freq, type, duration, vol) {
-  if (!audioCtx) return;
-  const osc = audioCtx.createOscillator(); const gainNode = audioCtx.createGain();
-  osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-  gainNode.gain.setValueAtTime(vol, audioCtx.currentTime);
-  gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-  osc.connect(gainNode); gainNode.connect(audioCtx.destination);
-  osc.start(); osc.stop(audioCtx.currentTime + duration);
-}
-function playStartSound() { initAudio(); if(!audioCtx) return; playTone(400, 'sine', 0.2, 0.1); setTimeout(() => playTone(600, 'sine', 0.3, 0.1), 100); setTimeout(() => playTone(800, 'sine', 0.4, 0.1), 200); }
-function playStopSound() { if(!audioCtx) return; playTone(300, 'sawtooth', 0.4, 0.1); setTimeout(() => playTone(200, 'sawtooth', 0.4, 0.1), 150); }
-function playWinSound() { if(!audioCtx) return; playTone(523.25, 'triangle', 0.6, 0.15); setTimeout(() => playTone(659.25, 'triangle', 0.6, 0.15), 100); setTimeout(() => playTone(783.99, 'triangle', 0.8, 0.15), 200); setTimeout(() => playTone(1046.50, 'triangle', 1.2, 0.15), 300); }
+  const urlParams = new URLSearchParams(window.location.search);
+  const roomId = urlParams.get('room');
 
-// ================= 核心变量 =================
-let KIDS = []; let remainingKIDS = []; let tags = []; let isSpinning = false; let animFrame;
-let drawCount = 1; let currentRadius = 300;
-let rotationX = 0, rotationY = 0, currentSpeedX = 0.002, currentSpeedY = 0.005, targetSpeedX = 0.002, targetSpeedY = 0.005;
-let prizes = [];
+  if (!roomId) {
+    document.getElementById('status').innerText = "请扫描电脑屏幕上的二维码！";
+  } else if (typeof Peer === 'undefined') {
+    document.getElementById('status').innerText = "插件加载失败，请刷新页面！";
+  } else {
+    const peer = new Peer();
+    peer.on('open', () => {
+      const conn = peer.connect(roomId);
+      conn.on('open', () => {
+        document.getElementById('status').innerText = "✅ 已连接大屏幕！";
+        document.getElementById('status').style.color = "#2ecc71";
+        document.getElementById('setupArea').style.display = 'block';
+      });
 
-// ================= 本地直连逻辑 (WebRTC) =================
-// 生成 4 位纯数字房间号
-const roomId = Math.floor(1000 + Math.random() * 9000).toString();
-document.getElementById('roomCode').innerText = roomId;
+      // 发送名单
+      document.getElementById('sendSetupBtn').onclick = () => {
+        const names = document.getElementById('nameInput').value.split('\n').map(l=>l.trim()).filter(l=>l);
+        if(names.length === 0) { alert('请输入名字'); return; }
+        conn.send({ action: 'setup', names: names });
+        
+        document.getElementById('setupArea').style.display = 'none';
+        document.getElementById('startBtn').style.display = 'block';
+      };
 
-// 使用免费的 PeerJS 信令服务器（即使不加载库，直接用底层 WebSocket）
-// 为了避免加载外部 JS，这里手写一个极简的信令连接
-const wsUrl = `wss://0.peerjs.com/peerjs?key=peerjs&id=LX${roomId}&token=1`;
-let ws;
+      // 点击开始
+      document.getElementById('startBtn').onclick = () => {
+        conn.send({ action: 'start' });
+        document.getElementById('startBtn').style.display = 'none';
+        document.getElementById('stopBtn').style.display = 'block';
+      };
 
-function connectWebSocket() {
-  try {
-    ws = new WebSocket(wsUrl);
-    ws.onopen = () => {
-      document.getElementById('connStatus').innerText = "等待手机连接... (请在手机上输入房间号)";
-    };
-    
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'OPEN') {
-         // 连接成功
-      } else if (data.type === 'OFFER') {
-         // 手机发来的连接请求
-         ws.send(JSON.stringify({ type: 'ANSWER', sdp: 'dummy', dst: data.src }));
-      } else if (data.type === 'DATA') {
-         // 收到手机传来的实际数据指令
-         handleRemoteData(data.payload);
-      }
-    };
-    
-    ws.onerror = () => {
-      document.getElementById('connStatus').innerText = "等待手机连接...";
-    };
-  } catch (e) {
-    document.getElementById('connStatus').innerText = "等待手机连接...";
-  }
-}
-connectWebSocket();
-
-function handleRemoteData(data) {
-  document.getElementById('connStatus').innerText = "✅ 手机已连接！请在手机上配置名单。";
-  document.getElementById('connStatus').style.color = "#2ecc71";
-  
-  if (data.action === 'setup') {
-    prizes = data.prizes;
-    drawCount = data.drawCount;
-    buildSphere(data.names);
-    document.getElementById('setupPanel').style.display = 'none'; // 隐藏等待面板
-  } else if (data.action === 'start') {
-    startSpin();
-  } else if (data.action === 'stop') {
-    stopSpin();
-  }
-}
-
-// ================= 3D 渲染核心 =================
-function buildSphere(names) {
-  KIDS = []; let nameIndex = 0;
-  prizes.forEach((p, tierIndex) => {
-    for (let i = 0; i < p.count; i++) {
-      if (nameIndex >= names.length) break;
-      KIDS.push({ name: names[nameIndex], prizeName: p.name, tierIndex: tierIndex }); nameIndex++;
-    }
-  });
-  while (nameIndex < names.length) {
-    KIDS.push({ name: names[nameIndex], prizeName: prizes[prizes.length - 1].name, tierIndex: prizes.length - 1 }); nameIndex++;
-  }
-  
-  remainingKIDS = [...KIDS];
-  const container = document.getElementById('sphereContainer'); container.innerHTML = ''; tags = [];
-  if (remainingKIDS.length === 0) return;
-
-  currentRadius = Math.min(400, Math.max(200, window.innerWidth / 4));
-  const numTags = KIDS.length; const phi = Math.PI * (3 - Math.sqrt(5)); 
-
-  KIDS.forEach((kid, i) => {
-    const el = document.createElement('div'); el.className = 'name-tag'; el.textContent = kid.name; container.appendChild(el);
-    const y = 1 - (i / (numTags - 1)) * 2; const radiusAtY = Math.sqrt(1 - y * y); const theta = phi * i;
-    tags.push({ el: el, name: kid.name, prizeName: kid.prizeName, tierIndex: kid.tierIndex, x: Math.cos(theta) * radiusAtY * currentRadius, y: y * currentRadius, z: Math.sin(theta) * radiusAtY * currentRadius });
-  });
-  if(!animFrame) animateSphere();
-}
-
-// 鼠标/触摸控制
-let mouseX = 0, mouseY = 0, isMouseOver = false;
-window.addEventListener('mousemove', (e) => { const cx = window.innerWidth / 2, cy = window.innerHeight / 2; mouseX = (e.clientX - cx) / cx; mouseY = (e.clientY - cy) / cy; isMouseOver = true; });
-window.addEventListener('mouseout', () => { isMouseOver = false; });
-window.addEventListener('touchmove', (e) => { if (e.touches.length > 0) { const touch = e.touches[0]; const cx = window.innerWidth / 2, cy = window.innerHeight / 2; mouseX = (touch.clientX - cx) / cx; mouseY = (touch.clientY - cy) / cy; isMouseOver = true; } }, { passive: true });
-window.addEventListener('touchend', () => { isMouseOver = false; });
-
-function animateSphere() {
-  currentSpeedX += (targetSpeedX - currentSpeedX) * 0.05; currentSpeedY += (targetSpeedY - currentSpeedY) * 0.05;
-  rotationX += currentSpeedX; rotationY += currentSpeedY;
-  let offsetX = 0, offsetY = 0;
-  if (!isSpinning && isMouseOver) { offsetY = mouseX * 1.5; offsetX = mouseY * 1.5; }
-  const finalRotX = rotationX + offsetX, finalRotY = rotationY + offsetY;
-  const cosX = Math.cos(finalRotX), sinX = Math.sin(finalRotX), cosY = Math.cos(finalRotY), sinY = Math.sin(finalRotY);
-  const cx = window.innerWidth / 2, cy = window.innerHeight / 2, fov = 800;
-
-  tags.forEach(tag => {
-    let x1 = tag.x * cosY - tag.z * sinY, z1 = tag.z * cosY + tag.x * sinY;
-    let y2 = tag.y * cosX - z1 * sinX, z2 = z1 * cosX + tag.y * sinX;
-    let scale = fov / (fov + z2); if (scale < 0) scale = 0.1; 
-    let screenX = cx + x1 * scale, screenY = cy + y2 * scale;
-    let baseOpacity = tag.el.classList.contains('winner-tag') ? 0.8 : 0.4;
-    let opacity = scale * baseOpacity; if (opacity > 1) opacity = 1; if (opacity < 0.1) opacity = 0.1;
-    let blur = (1 - scale) * 2; if (blur < 0) blur = 0;
-
-    tag.el.style.transform = `translate3d(${screenX}px, ${screenY}px, 0) translate(-50%, -50%) scale(${scale})`;
-    tag.el.style.opacity = opacity; tag.el.style.zIndex = Math.floor(scale * 1000); tag.el.style.filter = `blur(${blur}px)`;
-    
-    if (isSpinning && !tag.el.classList.contains('winner-tag')) { tag.el.style.color = '#00d2ff'; tag.el.style.textShadow = '0 0 15px #00d2ff'; }
-    else if (!tag.el.classList.contains('winner-tag')) { tag.el.style.color = '#fff'; tag.el.style.textShadow = '0 0 5px rgba(0,0,0,0.5)'; }
-  });
-  animFrame = requestAnimationFrame(animateSphere);
-}
-
-// ================= 控制逻辑 =================
-function startSpin() {
-  if (isSpinning || remainingKIDS.length === 0) return;
-  playStartSound(); isSpinning = true; targetSpeedX = 0.15; targetSpeedY = 0.3;
-  document.getElementById('resultBoard').style.display = 'none';
-}
-
-function stopSpin() {
-  if (!isSpinning) return;
-  playStopSound(); isSpinning = false; targetSpeedX = 0.002; targetSpeedY = 0.005;
-  
-  const minTier = Math.min(...remainingKIDS.map(k => k.tierIndex));
-  const lowestTierKIDS = remainingKIDS.filter(k => k.tierIndex === minTier);
-  const actualDrawCount = Math.min(drawCount, lowestTierKIDS.length);
-  const shuffledTier = [...lowestTierKIDS].sort(() => 0.5 - Math.random());
-  const winners = shuffledTier.slice(0, actualDrawCount);
-  
-  winners.forEach(w => {
-    const tag = tags.find(t => t.name === w.name);
-    tag.el.classList.add('winner-tag'); tag.el.style.color = '#ffd700'; tag.el.style.textShadow = '0 0 15px #ffd700, 0 0 30px #ff8c00';
-  });
-
-  setTimeout(() => {
-    playWinSound();
-    const board = document.getElementById('resultBoard');
-    document.getElementById('resultGift').textContent = `获得：${winners[0].prizeName}`;
-    const container = document.getElementById('winnerNamesContainer'); container.innerHTML = '';
-    winners.forEach(w => {
-      const nameSpan = document.createElement('div'); nameSpan.className = 'winner-name'; nameSpan.textContent = w.name; container.appendChild(nameSpan);
-      const idx = remainingKIDS.findIndex(k => k.name === w.name); if (idx !== -1) remainingKIDS.splice(idx, 1);
+      // 点击停止
+      document.getElementById('stopBtn').onclick = () => {
+        conn.send({ action: 'stop' });
+        document.getElementById('stopBtn').style.display = 'none';
+        document.getElementById('startBtn').style.display = 'block';
+      };
     });
-    board.style.display = 'block';
-    setTimeout(() => { board.style.display = 'none'; }, 4000);
-  }, 800);
-}
-
-// 星空背景
-const canvas = document.getElementById('stars'), ctx = canvas.getContext('2d');
-canvas.width = window.innerWidth; canvas.height = window.innerHeight;
-let stars = Array.from({length: 100}, () => ({x: Math.random()*canvas.width, y: Math.random()*canvas.height, r: Math.random()*2}));
-function drawStars() { ctx.clearRect(0,0,canvas.width,canvas.height); ctx.fillStyle='rgba(255,255,255,0.6)'; stars.forEach(s=>{ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill(); s.y-=0.5; if(s.y<0)s.y=canvas.height;}); requestAnimationFrame(drawStars); } drawStars();
+  }
 </script>
 </body>
 </html>
