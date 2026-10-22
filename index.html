@@ -2,105 +2,239 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>手机控制端</title>
-<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>电脑大屏展示端 - 幸运抽奖</title>
+<!-- 更换了国内更稳定的 CDN -->
+<script src="https://cdn.bootcdn.net/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
+<script src="https://cdn.bootcdn.net/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
-  body { background: #0f172a; color: #fff; font-family: sans-serif; padding: 20px; text-align: center; margin: 0; }
-  .status { font-size: 16px; color: #f39c12; margin-bottom: 20px; }
-  .control-btns { display: flex; flex-direction: column; gap: 20px; margin-top: 30px; }
-  .btn { width: 100%; height: 120px; border-radius: 20px; border: none; font-size: 36px; font-weight: bold; color: #fff; box-shadow: 0 10px 20px rgba(0,0,0,0.3); transition: transform 0.1s; }
-  .btn:active { transform: scale(0.95); }
-  #startBtn { background: #2ecc71; display: none; }
-  #stopBtn { background: #e74c3c; display: none; }
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  body { background: radial-gradient(circle at center, #1e1b4b 0%, #0f172a 100%); color: #fff; font-family: 'Microsoft YaHei', sans-serif; overflow: hidden; height: 100vh; width: 100vw; }
+  #stars, #sphereContainer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  #stars { z-index: 0; pointer-events: none; }
+  #sphereContainer { z-index: 1; perspective: 1200px; overflow: hidden; }
   
-  #setupArea { display: none; text-align: left; }
-  textarea { width: 100%; height: 200px; padding: 10px; border-radius: 8px; margin-bottom: 15px; border: none; font-size: 16px; }
-  input[type="number"], input[type="text"] { padding: 8px; font-size: 16px; border-radius: 5px; border: none; margin-bottom: 10px; width: 100%; }
-  .setup-btn { width: 100%; padding: 18px; background: #3498db; color: white; border: none; border-radius: 12px; font-size: 20px; font-weight: bold; margin-top: 15px; }
+  .name-tag { position: absolute; color: #fff; font-size: 16px; font-weight: bold; white-space: nowrap; will-change: transform, opacity; }
+  .winner-tag { color: #ffd700 !important; text-shadow: 0 0 15px #ffd700, 0 0 30px #ff8c00 !important; z-index: 999; }
+  
+  #resultBoard {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.85); border: 2px solid #ffd700; border-radius: 15px;
+    padding: 40px 60px; text-align: center; z-index: 200; display: none;
+    box-shadow: 0 0 50px rgba(255, 215, 0, 0.6); width: 85%; max-width: 900px;
+  }
+  #resultGift { font-size: 28px; color: #00d2ff; margin-bottom: 20px; font-weight: bold; }
+  #winnerNamesContainer { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; }
+  .winner-name { font-size: 48px; font-weight: bold; color: #ffd700; text-shadow: 0 0 20px #ffd700; }
+
+  /* 初始连接面板 */
+  #setupPanel {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: #1e293b; padding: 40px; border-radius: 15px; text-align: center;
+    z-index: 500; width: 90%; max-width: 600px; box-shadow: 0 0 50px rgba(0,0,0,0.8);
+  }
+  #roomCode { font-size: 48px; color: #ffd700; font-weight: bold; letter-spacing: 5px; margin: 10px 0; }
+  #qrcode { background: #fff; padding: 10px; border-radius: 10px; display: inline-block; margin: 15px 0; min-width: 180px; min-height: 180px; }
+  #connStatus { color: #f39c12; font-weight: bold; margin-bottom: 20px; font-size: 18px; }
 </style>
 </head>
 <body>
+<canvas id="stars"></canvas>
+<div id="sphereContainer"></div>
 
-<div id="status" class="status">正在连接电脑大屏...</div>
-
-<!-- 名单配置区 -->
-<div id="setupArea">
-  <h3>1. 设置奖项 (顺序: 小->中->大)</h3>
-  <div>奖项1名称: <input type="text" value="🍬 小礼物" id="p1name"> 数量: <input type="number" value="54" id="p1count"></div>
-  <div style="margin-top:10px;">奖项2名称: <input type="text" value="🎁 中号礼物" id="p2name"> 数量: <input type="number" value="60" id="p2count"></div>
-  <div style="margin-top:10px;">奖项3名称: <input type="text" value="🏆 大礼包" id="p3name"> 数量: <input type="number" value="30" id="p3count"></div>
-  
-  <h3 style="margin-top:20px;">2. 每次抽取人数</h3>
-  <input type="number" id="drawCountInput" value="1" min="1" style="width: 100px;">
-
-  <h3 style="margin-top:20px;">3. 粘贴学生名单</h3>
-  <textarea id="nameInput" placeholder="每行一个名字，系统会自动按奖项名额分配"></textarea>
-  
-  <button class="setup-btn" id="sendSetupBtn">发送名单到大屏幕</button>
+<div id="resultBoard">
+  <div id="resultGift"></div>
+  <div id="winnerNamesContainer"></div>
 </div>
 
-<!-- 抽奖控制区 -->
-<div class="control-btns" id="controlArea">
-  <button class="btn" id="startBtn">开 始</button>
-  <button class="btn" id="stopBtn">停 止</button>
+<div id="setupPanel">
+  <h2>请用手机扫描下方二维码连接</h2>
+  <div id="roomCode">获取房间号...</div>
+  <div id="qrcode"></div>
+  <div id="connStatus">等待手机连接... (若加载失败请刷新页面)</div>
 </div>
 
 <script>
-const urlParams = new URLSearchParams(window.location.search);
-const roomId = urlParams.get('room');
-
-if (!roomId) {
-  document.getElementById('status').innerText = "错误：请扫描电脑屏幕上的二维码打开此页面！";
-} else {
-  const peer = new Peer(); // 手机端随机 ID
-  
-  peer.on('open', () => {
-    const conn = peer.connect(roomId);
-    
-    conn.on('open', () => {
-      document.getElementById('status').innerText = "✅ 已连接大屏幕！请在下方配置名单。";
-      document.getElementById('status').style.color = "#2ecc71";
-      document.getElementById('setupArea').style.display = 'block';
-    });
-
-    document.getElementById('sendSetupBtn').onclick = () => {
-      const names = document.getElementById('nameInput').value.split('\n').map(l => l.trim()).filter(l => l);
-      if (names.length === 0) { alert('请输入名单'); return; }
-      
-      const prizes = [
-        { name: document.getElementById('p1name').value, count: parseInt(document.getElementById('p1count').value) || 0 },
-        { name: document.getElementById('p2name').value, count: parseInt(document.getElementById('p2count').value) || 0 },
-        { name: document.getElementById('p3name').value, count: parseInt(document.getElementById('p3count').value) || 0 }
-      ];
-      const drawCount = parseInt(document.getElementById('drawCountInput').value) || 1;
-
-      conn.send({ action: 'setup', names: names, prizes: prizes, drawCount: drawCount });
-
-      document.getElementById('setupArea').style.display = 'none';
-      document.getElementById('startBtn').style.display = 'block';
-      document.getElementById('status').innerText = "准备就绪，点击开始抽奖！";
-    };
-
-    document.getElementById('startBtn').onclick = () => {
-      conn.send({ action: 'start' });
-      document.getElementById('startBtn').style.display = 'none';
-      document.getElementById('stopBtn').style.display = 'block';
-      document.getElementById('status').innerText = "抽奖中... 点击停止揭晓";
-    };
-
-    document.getElementById('stopBtn').onclick = () => {
-      conn.send({ action: 'stop' });
-      document.getElementById('stopBtn').style.display = 'none';
-      document.getElementById('status').innerText = "已抽出结果！";
-      // 5秒后恢复开始按钮（留出大屏幕展示结果的时间）
-      setTimeout(() => {
-        document.getElementById('startBtn').style.display = 'block';
-        document.getElementById('status').innerText = "可以继续下一次抽奖";
-      }, 5000);
-    };
-  });
+// ================= 音效引擎 =================
+const AudioContext = window.AudioContext || window.webkitAudioContext;
+let audioCtx;
+function initAudio() { if (!audioCtx) audioCtx = new AudioContext(); }
+function playTone(freq, type, duration, vol) {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator(); const gainNode = audioCtx.createGain();
+  osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  gainNode.gain.setValueAtTime(vol, audioCtx.currentTime);
+  gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.connect(gainNode); gainNode.connect(audioCtx.destination);
+  osc.start(); osc.stop(audioCtx.currentTime + duration);
 }
+function playStartSound() { initAudio(); if(!audioCtx) return; playTone(400, 'sine', 0.2, 0.1); setTimeout(() => playTone(600, 'sine', 0.3, 0.1), 100); setTimeout(() => playTone(800, 'sine', 0.4, 0.1), 200); }
+function playStopSound() { if(!audioCtx) return; playTone(300, 'sawtooth', 0.4, 0.1); setTimeout(() => playTone(200, 'sawtooth', 0.4, 0.1), 150); }
+function playWinSound() { if(!audioCtx) return; playTone(523.25, 'triangle', 0.6, 0.15); setTimeout(() => playTone(659.25, 'triangle', 0.6, 0.15), 100); setTimeout(() => playTone(783.99, 'triangle', 0.8, 0.15), 200); setTimeout(() => playTone(1046.50, 'triangle', 1.2, 0.15), 300); }
+
+// ================= 核心变量 =================
+let KIDS = []; let remainingKIDS = []; let tags = []; let isSpinning = false; let animFrame;
+let drawCount = 1; let currentRadius = 300;
+let rotationX = 0, rotationY = 0, currentSpeedX = 0.002, currentSpeedY = 0.005, targetSpeedX = 0.002, targetSpeedY = 0.005;
+let prizes = [];
+
+// ================= 手机连接逻辑 =================
+// 生成一个随机的房间号
+const roomId = 'LX' + Math.floor(1000 + Math.random() * 9000); 
+
+// 确保 PeerJS 已经加载完毕再执行
+window.onload = function() {
+  if (typeof Peer === 'undefined') {
+    document.getElementById('roomCode').innerText = "插件加载失败";
+    document.getElementById('connStatus').innerText = "请检查网络后刷新页面！";
+    return;
+  }
+
+  document.getElementById('roomCode').innerText = roomId;
+  const peer = new Peer(roomId);
+
+  peer.on('open', (id) => {
+    // 二维码指向你的 GitHub Pages 手机端网址
+    const url = `https://chrisphang80.github.io/lucky-draw/remote.html?room=${id}`;
+    try {
+      new QRCode(document.getElementById("qrcode"), { text: url, width: 180, height: 180 });
+    } catch(e) {
+      document.getElementById('qrcode').innerHTML = '<span style="color:red;font-size:14px;">二维码生成失败，请刷新重试</span>';
+    }
+  });
+
+  peer.on('error', (err) => {
+    console.error(err);
+    document.getElementById('connStatus').innerText = "服务器连接失败，请刷新重试";
+    document.getElementById('connStatus').style.color = "#e74c3c";
+  });
+
+  let conn;
+  peer.on('connection', (connection) => {
+    conn = connection;
+    document.getElementById('connStatus').innerText = "✅ 手机已连接！请在手机上配置名单。";
+    document.getElementById('connStatus').style.color = "#2ecc71";
+
+    conn.on('data', (data) => {
+      if (data.action === 'setup') {
+        prizes = data.prizes;
+        drawCount = data.drawCount;
+        buildSphere(data.names);
+        document.getElementById('setupPanel').style.display = 'none'; // 隐藏等待面板
+      } else if (data.action === 'start') {
+        startSpin();
+      } else if (data.action === 'stop') {
+        stopSpin();
+      }
+    });
+  });
+};
+
+// ================= 3D 渲染核心 =================
+function buildSphere(names) {
+  KIDS = []; let nameIndex = 0;
+  prizes.forEach((p, tierIndex) => {
+    for (let i = 0; i < p.count; i++) {
+      if (nameIndex >= names.length) break;
+      KIDS.push({ name: names[nameIndex], prizeName: p.name, tierIndex: tierIndex }); nameIndex++;
+    }
+  });
+  while (nameIndex < names.length) {
+    KIDS.push({ name: names[nameIndex], prizeName: prizes[prizes.length - 1].name, tierIndex: prizes.length - 1 }); nameIndex++;
+  }
+  
+  remainingKIDS = [...KIDS];
+  const container = document.getElementById('sphereContainer'); container.innerHTML = ''; tags = [];
+  if (remainingKIDS.length === 0) return;
+
+  currentRadius = Math.min(400, Math.max(200, window.innerWidth / 4));
+  const numTags = KIDS.length; const phi = Math.PI * (3 - Math.sqrt(5)); 
+
+  KIDS.forEach((kid, i) => {
+    const el = document.createElement('div'); el.className = 'name-tag'; el.textContent = kid.name; container.appendChild(el);
+    const y = 1 - (i / (numTags - 1)) * 2; const radiusAtY = Math.sqrt(1 - y * y); const theta = phi * i;
+    tags.push({ el: el, name: kid.name, prizeName: kid.prizeName, tierIndex: kid.tierIndex, x: Math.cos(theta) * radiusAtY * currentRadius, y: y * currentRadius, z: Math.sin(theta) * radiusAtY * currentRadius });
+  });
+  if(!animFrame) animateSphere();
+}
+
+// 鼠标/触摸控制
+let mouseX = 0, mouseY = 0, isMouseOver = false;
+window.addEventListener('mousemove', (e) => { const cx = window.innerWidth / 2, cy = window.innerHeight / 2; mouseX = (e.clientX - cx) / cx; mouseY = (e.clientY - cy) / cy; isMouseOver = true; });
+window.addEventListener('mouseout', () => { isMouseOver = false; });
+window.addEventListener('touchmove', (e) => { if (e.touches.length > 0) { const touch = e.touches[0]; const cx = window.innerWidth / 2, cy = window.innerHeight / 2; mouseX = (touch.clientX - cx) / cx; mouseY = (touch.clientY - cy) / cy; isMouseOver = true; } }, { passive: true });
+window.addEventListener('touchend', () => { isMouseOver = false; });
+
+function animateSphere() {
+  currentSpeedX += (targetSpeedX - currentSpeedX) * 0.05; currentSpeedY += (targetSpeedY - currentSpeedY) * 0.05;
+  rotationX += currentSpeedX; rotationY += currentSpeedY;
+  let offsetX = 0, offsetY = 0;
+  if (!isSpinning && isMouseOver) { offsetY = mouseX * 1.5; offsetX = mouseY * 1.5; }
+  const finalRotX = rotationX + offsetX, finalRotY = rotationY + offsetY;
+  const cosX = Math.cos(finalRotX), sinX = Math.sin(finalRotX), cosY = Math.cos(finalRotY), sinY = Math.sin(finalRotY);
+  const cx = window.innerWidth / 2, cy = window.innerHeight / 2, fov = 800;
+
+  tags.forEach(tag => {
+    let x1 = tag.x * cosY - tag.z * sinY, z1 = tag.z * cosY + tag.x * sinY;
+    let y2 = tag.y * cosX - z1 * sinX, z2 = z1 * cosX + tag.y * sinX;
+    let scale = fov / (fov + z2); if (scale < 0) scale = 0.1; 
+    let screenX = cx + x1 * scale, screenY = cy + y2 * scale;
+    let baseOpacity = tag.el.classList.contains('winner-tag') ? 0.8 : 0.4;
+    let opacity = scale * baseOpacity; if (opacity > 1) opacity = 1; if (opacity < 0.1) opacity = 0.1;
+    let blur = (1 - scale) * 2; if (blur < 0) blur = 0;
+
+    tag.el.style.transform = `translate3d(${screenX}px, ${screenY}px, 0) translate(-50%, -50%) scale(${scale})`;
+    tag.el.style.opacity = opacity; tag.el.style.zIndex = Math.floor(scale * 1000); tag.el.style.filter = `blur(${blur}px)`;
+    
+    if (isSpinning && !tag.el.classList.contains('winner-tag')) { tag.el.style.color = '#00d2ff'; tag.el.style.textShadow = '0 0 15px #00d2ff'; }
+    else if (!tag.el.classList.contains('winner-tag')) { tag.el.style.color = '#fff'; tag.el.style.textShadow = '0 0 5px rgba(0,0,0,0.5)'; }
+  });
+  animFrame = requestAnimationFrame(animateSphere);
+}
+
+// ================= 控制逻辑 =================
+function startSpin() {
+  if (isSpinning || remainingKIDS.length === 0) return;
+  playStartSound(); isSpinning = true; targetSpeedX = 0.15; targetSpeedY = 0.3;
+  document.getElementById('resultBoard').style.display = 'none';
+}
+
+function stopSpin() {
+  if (!isSpinning) return;
+  playStopSound(); isSpinning = false; targetSpeedX = 0.002; targetSpeedY = 0.005;
+  
+  const minTier = Math.min(...remainingKIDS.map(k => k.tierIndex));
+  const lowestTierKIDS = remainingKIDS.filter(k => k.tierIndex === minTier);
+  const actualDrawCount = Math.min(drawCount, lowestTierKIDS.length);
+  const shuffledTier = [...lowestTierKIDS].sort(() => 0.5 - Math.random());
+  const winners = shuffledTier.slice(0, actualDrawCount);
+  
+  winners.forEach(w => {
+    const tag = tags.find(t => t.name === w.name);
+    tag.el.classList.add('winner-tag'); tag.el.style.color = '#ffd700'; tag.el.style.textShadow = '0 0 15px #ffd700, 0 0 30px #ff8c00';
+  });
+
+  setTimeout(() => {
+    playWinSound();
+    const board = document.getElementById('resultBoard');
+    document.getElementById('resultGift').textContent = `获得：${winners[0].prizeName}`;
+    const container = document.getElementById('winnerNamesContainer'); container.innerHTML = '';
+    winners.forEach(w => {
+      const nameSpan = document.createElement('div'); nameSpan.className = 'winner-name'; nameSpan.textContent = w.name; container.appendChild(nameSpan);
+      const idx = remainingKIDS.findIndex(k => k.name === w.name); if (idx !== -1) remainingKIDS.splice(idx, 1);
+    });
+    board.style.display = 'block';
+    
+    // 大屏幕展示 4 秒后自动消失
+    setTimeout(() => { board.style.display = 'none'; }, 4000);
+  }, 800);
+}
+
+// 星空背景
+const canvas = document.getElementById('stars'), ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+let stars = Array.from({length: 100}, () => ({x: Math.random()*canvas.width, y: Math.random()*canvas.height, r: Math.random()*2}));
+function drawStars() { ctx.clearRect(0,0,canvas.width,canvas.height); ctx.fillStyle='rgba(255,255,255,0.6)'; stars.forEach(s=>{ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill(); s.y-=0.5; if(s.y<0)s.y=canvas.height;}); requestAnimationFrame(drawStars); } drawStars();
 </script>
 </body>
 </html>
