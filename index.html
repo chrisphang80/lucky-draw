@@ -70,7 +70,7 @@ const peer = new Peer(roomId);
 peer.on('open', (id) => {
   // 生成二维码 (连接地址带上房间号)
   const url = window.location.href.split('?')[0] + '?room=' + id;
-  new QRCode(document.getElementById("qrcode"), { text: url, width: 150, height: 150 });
+  new QRCode(document.getElementById("qrcode"), { text: `https://https://chrisphang80.github.io/lucky-draw/remote.html?room=${id}`);
 });
 
 let conn;
