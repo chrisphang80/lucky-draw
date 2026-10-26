@@ -2,75 +2,892 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>手机控制端</title>
-<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>3D球体悬浮抽奖（Supabase云端版）</title>
 <style>
-  body { background: #0f172a; color: #fff; font-family: sans-serif; padding: 20px; text-align: center; }
-  .status { font-size: 18px; color: #f39c12; margin-bottom: 20px; }
-  .btn { width: 100%; height: 100px; border-radius: 15px; border: none; font-size: 32px; font-weight: bold; color: #fff; margin-top: 20px; }
-  #startBtn { background: #2ecc71; display: none; }
-  #stopBtn { background: #e74c3c; display: none; }
-  #setupArea { display: none; text-align: left; }
-  textarea { width: 100%; height: 200px; padding: 10px; border-radius: 8px; }
-  .setup-btn { width: 100%; padding: 15px; background: #3498db; color: white; border: none; border-radius: 8px; font-size: 18px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  body { 
+    background: radial-gradient(circle at center, #1e1b4b 0%, #0f172a 100%); 
+    color: #fff; font-family: 'Microsoft YaHei', sans-serif; 
+    overflow: hidden; height: 100vh; width: 100vw;
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  #stars { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+  
+  /* 3D 球体容器 */
+  #sphereContainer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; perspective: 1200px; overflow: hidden; }
+  
+  .name-tag {
+    position: absolute; color: #fff; font-size: 16px; font-weight: bold;
+    white-space: nowrap; will-change: transform, opacity;
+  }
+  
+  /* 中奖者状态 */
+  .winner-tag {
+    color: #ffd700 !important;
+    text-shadow: 0 0 15px #ffd700, 0 0 30px #ff8c00 !important;
+    z-index: 999;
+  }
+
+  /* 中央按钮控制区 */
+  #controlArea { 
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+    display: flex; z-index: 100; 
+  }
+  
+  .btn {
+    width: 160px; height: 160px; border-radius: 50%; border: 4px solid rgba(255,255,255,0.2);
+    font-size: 36px; font-weight: bold; cursor: pointer; color: #fff;
+    box-shadow: 0 0 40px rgba(0,0,0,0.6); transition: all 0.3s;
+    display: flex; justify-content: center; align-items: center;
+  }
+  .btn:hover { transform: scale(1.05); box-shadow: 0 0 50px rgba(0,210,255,0.8); }
+  .btn:active { transform: scale(0.95); }
+  
+  #startBtn { background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%); box-shadow: 0 0 30px rgba(0,210,255,0.6); }
+  #stopBtn { background: linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%); box-shadow: 0 0 30px rgba(255,65,108,0.6); display: none; }
+
+  /* 结果展示板 */
+  #resultBoard {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.85); border: 2px solid #ffd700; border-radius: 15px;
+    padding: 40px 60px; text-align: center; z-index: 200; display: none;
+    box-shadow: 0 0 50px rgba(255, 215, 0, 0.6); width: 85%; max-width: 900px;
+    cursor: pointer;
+  }
+  
+  #closeBoardBtn {
+    position: absolute; top: 15px; right: 20px;
+    width: 40px; height: 40px; border-radius: 50%;
+    background: rgba(255,255,255,0.1); color: #fff;
+    font-size: 24px; font-weight: bold; display: flex; justify-content: center; align-items: center;
+    transition: all 0.2s; cursor: pointer; border: 2px solid transparent;
+  }
+  #closeBoardBtn:hover { background: #e74c3c; transform: rotate(90deg) scale(1.1); }
+
+  #resultGift { font-size: 28px; color: #00d2ff; margin-bottom: 20px; font-weight: bold; }
+  #winnerNamesContainer { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; }
+  .winner-name { font-size: 48px; font-weight: bold; color: #ffd700; text-shadow: 0 0 20px #ffd700; }
+
+  /* 右下角控制 */
+  #cornerControls { position: absolute; bottom: 30px; right: 30px; z-index: 20; display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .btn-small { padding: 10px 20px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; color: #fff; }
+  .btn-orange { background: #f39c12; }
+  .btn-cyan { background: #00d2ff; }
+  .btn-red { background: #e74c3c; }
+  .btn-green { background: #2ecc71; }
+  .btn-purple { background: #9b59b6; }
+  .btn-blue { background: #3498db; }
+  .btn-small:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* 设置面板 */
+  #setup {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(15, 23, 42, 0.95); z-index: 500; display: none;
+    padding: 40px; overflow-y: auto;
+  }
+  .setup-container {
+    max-width: 1100px; margin: 0 auto; background: #f8f9fa; color: #333;
+    border-radius: 8px; padding: 30px; display: flex; gap: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+  .left-panel { flex: 1.2; border-right: 1px solid #ddd; padding-right: 30px; }
+  .right-panel { flex: 1; }
+  .panel-title { text-align: center; font-size: 22px; font-weight: bold; margin-bottom: 20px; color: #1a1a2e; }
+  
+  .prize-header { display: flex; font-size: 14px; font-weight: bold; color: #666; padding: 10px 0; border-bottom: 2px solid #eee; }
+  .prize-header span:nth-child(1) { width: 60px; text-align: center; }
+  .prize-header span:nth-child(2) { flex: 1; padding-left: 10px; }
+  .prize-header span:nth-child(3) { width: 80px; text-align: center; }
+  .prize-header span:nth-child(4) { width: 120px; text-align: center; }
+  .prize-list { max-height: 380px; overflow-y: auto; margin-bottom: 15px; }
+  .prize-row { display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid #eee; }
+  .prize-row .idx { width: 60px; text-align: center; font-weight: bold; color: #e74c3c; }
+  .prize-row input[type="text"] { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-right: 10px; font-size: 14px;}
+  .prize-row input[type="number"] { width: 80px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; text-align: center; margin-right: 10px; }
+  .prize-row .ops { width: 120px; display: flex; justify-content: space-around; }
+  .prize-row .ops button { padding: 4px 8px; border: none; border-radius: 4px; cursor: pointer; color: #fff; font-size: 12px; }
+
+  #nameInput { width: 100%; height: 380px; padding: 15px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px; line-height: 1.6; resize: none; font-family: inherit; }
+  .count-text { text-align: right; margin-top: 10px; color: #666; font-size: 14px; }
+  
+  .draw-count-setting { margin-top: 20px; padding: 15px; background: #eef2f5; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; font-weight: bold; }
+  .draw-count-setting input { width: 80px; padding: 8px; font-size: 16px; text-align: center; border: 1px solid #ccc; border-radius: 4px; }
+
+  .setup-actions { max-width: 1100px; margin: 20px auto 0; display: flex; justify-content: flex-end; gap: 15px; }
+  .setup-actions .btn { width: auto; height: auto; padding: 12px 30px; font-size: 18px; border-radius: 8px;}
+
+  /* 云端状态提示条 */
+  #cloudStatus {
+    position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2);
+    padding: 8px 20px; border-radius: 20px; font-size: 14px; z-index: 30;
+    display: none; white-space: nowrap;
+  }
+  #cloudStatus.show { display: block; }
+  #cloudStatus.ok { border-color: #2ecc71; color: #2ecc71; }
+  #cloudStatus.err { border-color: #e74c3c; color: #e74c3c; }
+  #cloudStatus.loading { border-color: #f39c12; color: #f39c12; }
+
+  /* ================= 移动端自适应 (屏幕宽度小于 768px) ================= */
+  @media (max-width: 768px) {
+    .btn { width: 110px; height: 110px; font-size: 24px; border-width: 3px; }
+    .name-tag { font-size: 12px; }
+    .winner-tag { font-size: 20px !important; }
+    
+    #resultBoard { padding: 25px 20px; width: 90%; }
+    #resultGift { font-size: 20px; }
+    .winner-name { font-size: 28px; }
+    #closeBoardBtn { width: 30px; height: 30px; font-size: 18px; top: 10px; right: 10px; }
+
+    #cornerControls { bottom: 15px; right: 15px; flex-direction: column; align-items: flex-end; gap: 6px; }
+    .btn-small { font-size: 14px; padding: 8px 15px; }
+
+    /* 设置面板竖向排列 */
+    #setup { padding: 15px; }
+    .setup-container { flex-direction: column; padding: 20px; gap: 20px; }
+    .left-panel { border-right: none; border-bottom: 1px solid #ddd; padding-right: 0; padding-bottom: 20px; }
+    .prize-header span:nth-child(4) { width: 90px; }
+    .prize-row .ops { width: 90px; }
+    .prize-row .ops button { padding: 4px; }
+    #nameInput { height: 250px; }
+    .setup-actions { flex-direction: column; gap: 10px; }
+    .setup-actions .btn { width: 100%; }
+  }
 </style>
 </head>
 <body>
-<div id="status" class="status">正在加载...</div>
 
-<div id="setupArea">
-  <h3>粘贴学生名单</h3>
-  <textarea id="nameInput" placeholder="每行一个名字"></textarea>
-  <button class="setup-btn" id="sendSetupBtn" style="margin-top:10px;">发送名单到大屏幕</button>
+<canvas id="stars"></canvas>
+<div id="sphereContainer"></div>
+
+<div id="cloudStatus"></div>
+
+<div id="controlArea">
+  <button class="btn" id="startBtn">开始</button>
+  <button class="btn" id="stopBtn">停止</button>
 </div>
 
-<button class="btn" id="startBtn">开 始</button>
-<button class="btn" id="stopBtn">停 止</button>
+<div id="resultBoard">
+  <div id="closeBoardBtn" title="关闭">✕</div>
+  <div id="resultGift"></div>
+  <div id="winnerNamesContainer"></div>
+</div>
 
+<div id="cornerControls">
+  <button class="btn-small btn-orange" id="resetBtn">重置</button>
+  <button class="btn-small btn-cyan" id="settingBtn">设置名单</button>
+  <button class="btn-small btn-purple" id="cloudBackupBtn" title="保存当前状态到云端">☁️ 备份到云端</button>
+  <button class="btn-small btn-blue" id="cloudRestoreBtn" title="从云端恢复">☁️ 从云端恢复</button>
+</div>
+
+<div id="setup">
+  <div class="setup-container">
+    <div class="left-panel">
+      <div class="panel-title">奖项设置 (按顺序抽出)</div>
+      <div class="prize-header">
+        <span>顺序</span>
+        <span>礼物名称</span>
+        <span>名额</span>
+        <span>操作</span>
+      </div>
+      <div class="prize-list" id="prizeList"></div>
+      <button class="btn-small btn-green" id="addPrizeBtn" style="width: 100%; padding: 12px;">+ 添加奖项</button>
+    </div>
+    <div class="right-panel">
+      <div class="panel-title">名单设置</div>
+      <p style="font-size:13px; color:#666; margin-bottom:10px;">
+        <b>请按顺序粘贴名字，每行一个。</b><br>
+        系统会严格按照顺序分配给左侧奖项。
+      </p>
+      <textarea id="nameInput" placeholder="张三&#10;李四&#10;王五"></textarea>
+      <div class="count-text">（共计人数：<span id="peopleCount">0</span> 人）</div>
+      
+      <div class="draw-count-setting">
+        <span>每次抽取人数：</span>
+        <input type="number" id="drawCountInput" value="1" min="1">
+      </div>
+    </div>
+  </div>
+  <div class="setup-actions">
+    <button class="btn-small btn-red" id="cancelSetupBtn">取消</button>
+    <button class="btn-small btn-cyan" id="saveBtn">保存并应用</button>
+  </div>
+</div>
+
+<!-- Supabase JS SDK -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-  const urlParams = new URLSearchParams(window.location.search);
-  const roomId = urlParams.get('room');
+// ================= 音效引擎 (Web Audio API) =================
+const AudioContext = window.AudioContext || window.webkitAudioContext;
+let audioCtx;
 
-  if (!roomId) {
-    document.getElementById('status').innerText = "请扫描电脑屏幕上的二维码！";
-  } else if (typeof Peer === 'undefined') {
-    document.getElementById('status').innerText = "插件加载失败，请刷新页面！";
+function initAudio() {
+  if (!audioCtx) audioCtx = new AudioContext();
+}
+
+function playTone(freq, type, duration, vol) {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gainNode = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  gainNode.gain.setValueAtTime(vol, audioCtx.currentTime);
+  gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.connect(gainNode);
+  gainNode.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+function playStartSound() {
+  initAudio();
+  if(!audioCtx) return;
+  playTone(400, 'sine', 0.2, 0.1);
+  setTimeout(() => playTone(600, 'sine', 0.3, 0.1), 100);
+  setTimeout(() => playTone(800, 'sine', 0.4, 0.1), 200);
+}
+
+function playStopSound() {
+  if(!audioCtx) return;
+  playTone(300, 'sawtooth', 0.4, 0.1);
+  setTimeout(() => playTone(200, 'sawtooth', 0.4, 0.1), 150);
+}
+
+function playWinSound() {
+  if(!audioCtx) return;
+  playTone(523.25, 'triangle', 0.6, 0.15);
+  setTimeout(() => playTone(659.25, 'triangle', 0.6, 0.15), 100);
+  setTimeout(() => playTone(783.99, 'triangle', 0.8, 0.15), 200);
+  setTimeout(() => playTone(1046.50, 'triangle', 1.2, 0.15), 300);
+}
+
+// ================= Supabase 配置 =================
+// ⚠️ 请替换为你自己的 Supabase 项目 URL 和 publishable/anon key
+const SUPABASE_URL = 'https://你的项目ID.supabase.co';
+const SUPABASE_KEY = '你的publishable-or-anon-key';
+
+// 全局 supabase 客户端（若配置未填写，则 cloudEnabled = false）
+let supabase = null;
+let cloudEnabled = false;
+
+try {
+  if (SUPABASE_URL && !SUPABASE_URL.includes('你的项目ID') && SUPABASE_KEY && !SUPABASE_KEY.includes('你的')) {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    cloudEnabled = true;
+    console.log('✅ Supabase 客户端已初始化');
   } else {
-    const peer = new Peer();
-    peer.on('open', () => {
-      const conn = peer.connect(roomId);
-      conn.on('open', () => {
-        document.getElementById('status').innerText = "✅ 已连接大屏幕！";
-        document.getElementById('status').style.color = "#2ecc71";
-        document.getElementById('setupArea').style.display = 'block';
-      });
-
-      // 发送名单
-      document.getElementById('sendSetupBtn').onclick = () => {
-        const names = document.getElementById('nameInput').value.split('\n').map(l=>l.trim()).filter(l=>l);
-        if(names.length === 0) { alert('请输入名字'); return; }
-        conn.send({ action: 'setup', names: names });
-        
-        document.getElementById('setupArea').style.display = 'none';
-        document.getElementById('startBtn').style.display = 'block';
-      };
-
-      // 点击开始
-      document.getElementById('startBtn').onclick = () => {
-        conn.send({ action: 'start' });
-        document.getElementById('startBtn').style.display = 'none';
-        document.getElementById('stopBtn').style.display = 'block';
-      };
-
-      // 点击停止
-      document.getElementById('stopBtn').onclick = () => {
-        conn.send({ action: 'stop' });
-        document.getElementById('stopBtn').style.display = 'none';
-        document.getElementById('startBtn').style.display = 'block';
-      };
-    });
+    console.warn('⚠️ 未配置 Supabase URL/KEY，云端功能不可用，将使用本地演示模式。');
   }
+} catch (e) {
+  console.error('Supabase 初始化失败:', e);
+  cloudEnabled = false;
+}
+
+// 表名（与 SQL 建表一致）
+const TABLE_NAME = 'draw_config';
+const CONFIG_KEY = 'main';
+
+// 云端状态提示
+const cloudStatusEl = document.getElementById('cloudStatus');
+let cloudStatusTimer = null;
+function showCloudStatus(msg, type = 'ok') {
+  cloudStatusEl.textContent = msg;
+  cloudStatusEl.className = 'show ' + type;
+  if (cloudStatusTimer) clearTimeout(cloudStatusTimer);
+  cloudStatusTimer = setTimeout(() => {
+    cloudStatusEl.className = '';
+  }, 3000);
+}
+
+// ================= 核心数据 =================
+let KIDS = []; 
+let remainingKIDS = []; 
+let tags = []; 
+let isSpinning = false;
+let animFrame;
+let drawCount = 1;
+
+let prizes = [
+  { name: '🍬 小礼物（需努力）', count: 54 },
+  { name: '🎁 中号礼物（表现好）', count: 60 },
+  { name: '🏆 精美大礼包（勤劳）', count: 30 }
+];
+
+// ================= 3D 球体与鼠标/触摸控制参数 =================
+let rotationX = 0; 
+let rotationY = 0; 
+let targetSpeedX = 0.002; 
+let targetSpeedY = 0.005; 
+let currentSpeedX = targetSpeedX;
+let currentSpeedY = targetSpeedY;
+let currentRadius = 300;
+
+let mouseX = 0, mouseY = 0;
+let isMouseOver = false;
+
+window.addEventListener('mousemove', (e) => {
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+  mouseX = (e.clientX - cx) / cx;
+  mouseY = (e.clientY - cy) / cy;
+  isMouseOver = true;
+});
+window.addEventListener('mouseout', () => { isMouseOver = false; });
+
+window.addEventListener('touchmove', (e) => {
+  if (e.touches.length > 0) {
+    const touch = e.touches[0];
+    const cx = window.innerWidth / 2;
+    const cy = window.innerHeight / 2;
+    mouseX = (touch.clientX - cx) / cx;
+    mouseY = (touch.clientY - cy) / cy;
+    isMouseOver = true;
+  }
+}, { passive: true });
+window.addEventListener('touchend', () => { isMouseOver = false; });
+
+// ================= 设置面板逻辑 =================
+const setupPanel = document.getElementById('setup');
+const prizeListEl = document.getElementById('prizeList');
+const nameInputEl = document.getElementById('nameInput');
+const peopleCountEl = document.getElementById('peopleCount');
+const drawCountInput = document.getElementById('drawCountInput');
+
+function renderPrizes() {
+  prizeListEl.innerHTML = '';
+  prizes.forEach((p, index) => {
+    const row = document.createElement('div');
+    row.className = 'prize-row';
+    row.innerHTML = `
+      <div class="idx">${index + 1}</div>
+      <input type="text" value="${p.name}" onchange="updatePrize(${index}, 'name', this.value)">
+      <input type="number" value="${p.count}" min="0" onchange="updatePrize(${index}, 'count', this.value)">
+      <div class="ops">
+        <button class="btn-cyan" onclick="movePrize(${index}, -1)">↑</button>
+        <button class="btn-cyan" onclick="movePrize(${index}, 1)">↓</button>
+        <button class="btn-red" onclick="removePrize(${index})">删除</button>
+      </div>
+    `;
+    prizeListEl.appendChild(row);
+  });
+}
+window.updatePrize = function(index, field, val) {
+  if (field === 'count') val = parseInt(val) || 0;
+  prizes[index][field] = val;
+};
+window.movePrize = function(index, dir) {
+  if (index + dir < 0 || index + dir >= prizes.length) return;
+  const temp = prizes[index];
+  prizes[index] = prizes[index + dir];
+  prizes[index + dir] = temp;
+  renderPrizes();
+};
+window.removePrize = function(index) {
+  prizes.splice(index, 1);
+  renderPrizes();
+};
+document.getElementById('addPrizeBtn').addEventListener('click', () => {
+  prizes.push({ name: '新奖项', count: 1 });
+  renderPrizes();
+});
+nameInputEl.addEventListener('input', () => {
+  const lines = nameInputEl.value.split('\n').map(l => l.trim()).filter(l => l);
+  peopleCountEl.textContent = lines.length;
+});
+document.getElementById('settingBtn').addEventListener('click', () => {
+  if (isSpinning) return;
+  setupPanel.style.display = 'block';
+  renderPrizes();
+  nameInputEl.value = KIDS.map(k => k.name).join('\n');
+  peopleCountEl.textContent = KIDS.length;
+  drawCountInput.value = drawCount;
+});
+document.getElementById('cancelSetupBtn').addEventListener('click', () => {
+  setupPanel.style.display = 'none';
+});
+
+// ================= 保存名单（本地应用） =================
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const lines = nameInputEl.value.split('\n').map(l => l.trim()).filter(l => l);
+  if (lines.length === 0) { alert('请输入名单！'); return; }
+
+  drawCount = parseInt(drawCountInput.value) || 1;
+  if (drawCount < 1) drawCount = 1;
+
+  KIDS = [];
+  let nameIndex = 0;
+  
+  prizes.forEach((p, tierIndex) => {
+    for (let i = 0; i < p.count; i++) {
+      if (nameIndex >= lines.length) break;
+      KIDS.push({ 
+        name: lines[nameIndex], 
+        prizeName: p.name,
+        tierIndex: tierIndex 
+      });
+      nameIndex++;
+    }
+  });
+
+  while (nameIndex < lines.length) {
+    KIDS.push({ 
+      name: lines[nameIndex], 
+      prizeName: prizes[prizes.length - 1]?.name || '参与奖',
+      tierIndex: prizes.length - 1
+    });
+    nameIndex++;
+  }
+
+  setupPanel.style.display = 'none';
+  resetGame();
+
+  // 保存到云端（如果启用）
+  if (cloudEnabled) {
+    cloudBackup(false); // 静默保存
+  }
+});
+
+// ================= 初始化与 3D 球体生成 =================
+function resetGame() {
+  cancelAnimationFrame(animFrame);
+  isSpinning = false;
+  remainingKIDS = [...KIDS];
+  document.getElementById('resultBoard').style.display = 'none';
+  document.getElementById('startBtn').style.display = 'flex'; 
+  document.getElementById('stopBtn').style.display = 'none';
+  document.getElementById('startBtn').disabled = false;
+  
+  targetSpeedX = 0.002;
+  targetSpeedY = 0.005;
+
+  rebuildSphere();
+}
+
+function rebuildSphere() {
+  const container = document.getElementById('sphereContainer');
+  container.innerHTML = '';
+  tags = [];
+
+  if (remainingKIDS.length === 0) {
+    return;
+  }
+
+  const isMobile = window.innerWidth < 768;
+  currentRadius = isMobile ? Math.min(180, window.innerWidth * 0.4) : Math.min(400, window.innerWidth / 4);
+
+  const numTags = KIDS.length;
+  if (numTags === 0) return;
+  const phi = Math.PI * (3 - Math.sqrt(5)); 
+
+  KIDS.forEach((kid, i) => {
+    const el = document.createElement('div');
+    el.className = 'name-tag';
+    el.textContent = kid.name;
+    container.appendChild(el);
+
+    const y = 1 - (i / Math.max(1, numTags - 1)) * 2; 
+    const radiusAtY = Math.sqrt(1 - y * y);
+    const theta = phi * i;
+    
+    tags.push({
+      el: el,
+      name: kid.name,
+      prizeName: kid.prizeName,
+      tierIndex: kid.tierIndex,
+      x: Math.cos(theta) * radiusAtY * currentRadius,
+      y: y * currentRadius,
+      z: Math.sin(theta) * radiusAtY * currentRadius
+    });
+  });
+
+  animateSphere();
+}
+
+window.addEventListener('resize', () => {
+  if (!isSpinning && tags.length > 0) {
+    const isMobile = window.innerWidth < 768;
+    const newR = isMobile ? Math.min(180, window.innerWidth * 0.4) : Math.min(400, window.innerWidth / 4);
+    
+    const ratio = newR / currentRadius;
+    tags.forEach(tag => {
+      tag.x *= ratio;
+      tag.y *= ratio;
+      tag.z *= ratio;
+    });
+    currentRadius = newR;
+  }
+});
+
+// ================= 每帧 3D 渲染 =================
+function animateSphere() {
+  currentSpeedX += (targetSpeedX - currentSpeedX) * 0.05;
+  currentSpeedY += (targetSpeedY - currentSpeedY) * 0.05;
+
+  rotationX += currentSpeedX;
+  rotationY += currentSpeedY;
+
+  let offsetX = 0, offsetY = 0;
+  if (!isSpinning && isMouseOver) {
+    offsetY = mouseX * 1.5; 
+    offsetX = mouseY * 1.5; 
+  }
+
+  const finalRotX = rotationX + offsetX;
+  const finalRotY = rotationY + offsetY;
+
+  const cosX = Math.cos(finalRotX), sinX = Math.sin(finalRotX);
+  const cosY = Math.cos(finalRotY), sinY = Math.sin(finalRotY);
+
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+  const fov = 800;
+
+  tags.forEach(tag => {
+    let x1 = tag.x * cosY - tag.z * sinY;
+    let z1 = tag.z * cosY + tag.x * sinY;
+    let y2 = tag.y * cosX - z1 * sinX;
+    let z2 = z1 * cosX + tag.y * sinX;
+
+    let scale = fov / (fov + z2);
+    if (scale < 0) scale = 0.1; 
+
+    let screenX = cx + x1 * scale;
+    let screenY = cy + y2 * scale;
+
+    let baseOpacity = tag.el.classList.contains('winner-tag') ? 0.8 : 0.4;
+    let opacity = scale * baseOpacity; 
+    
+    if (opacity > 1) opacity = 1;
+    if (opacity < 0.1) opacity = 0.1;
+    
+    let blur = (1 - scale) * 2;
+    if (blur < 0) blur = 0;
+
+    tag.el.style.transform = `translate3d(${screenX}px, ${screenY}px, 0) translate(-50%, -50%) scale(${scale})`;
+    tag.el.style.opacity = opacity;
+    tag.el.style.zIndex = Math.floor(scale * 1000);
+    tag.el.style.filter = `blur(${blur}px)`;
+    
+    if (isSpinning && !tag.el.classList.contains('winner-tag')) {
+      tag.el.style.color = '#00d2ff';
+      tag.el.style.textShadow = '0 0 15px #00d2ff';
+    } else if (!tag.el.classList.contains('winner-tag')) {
+      tag.el.style.color = '#fff';
+      tag.el.style.textShadow = '0 0 5px rgba(0,0,0,0.5)';
+    }
+  });
+
+  animFrame = requestAnimationFrame(animateSphere);
+}
+
+// ================= 按钮交互 =================
+document.getElementById('startBtn').addEventListener('click', () => {
+  if (isSpinning || remainingKIDS.length === 0) return;
+  playStartSound();
+  isSpinning = true;
+  document.getElementById('startBtn').style.display = 'none';
+  document.getElementById('stopBtn').style.display = 'flex'; 
+  document.getElementById('resultBoard').style.display = 'none';
+  targetSpeedX = 0.15; 
+  targetSpeedY = 0.3;
+});
+
+document.getElementById('stopBtn').addEventListener('click', () => {
+  if (!isSpinning) return;
+  playStopSound();
+  isSpinning = false;
+  document.getElementById('stopBtn').style.display = 'none';
+  targetSpeedX = 0.002;
+  targetSpeedY = 0.005;
+
+  const minTier = Math.min(...remainingKIDS.map(k => k.tierIndex));
+  const lowestTierKIDS = remainingKIDS.filter(k => k.tierIndex === minTier);
+  
+  const actualDrawCount = Math.min(drawCount, lowestTierKIDS.length);
+  const shuffledTier = [...lowestTierKIDS].sort(() => 0.5 - Math.random());
+  const winners = shuffledTier.slice(0, actualDrawCount);
+
+  const winnerTags = winners.map(w => tags.find(t => t.name === w.name));
+
+  winnerTags.forEach(tag => {
+    if (!tag) return;
+    tag.el.classList.add('winner-tag');
+    tag.el.style.color = '#ffd700';
+    tag.el.style.textShadow = '0 0 15px #ffd700, 0 0 30px #ff8c00';
+  });
+
+  setTimeout(() => {
+    playWinSound();
+    const board = document.getElementById('resultBoard');
+    const namesContainer = document.getElementById('winnerNamesContainer');
+    namesContainer.innerHTML = '';
+    
+    document.getElementById('resultGift').textContent = `获得：${winners[0]?.prizeName || ''}`;
+    
+    winners.forEach(w => {
+      const nameSpan = document.createElement('div');
+      nameSpan.className = 'winner-name';
+      nameSpan.textContent = w.name;
+      namesContainer.appendChild(nameSpan);
+    });
+    
+    board.style.display = 'block';
+
+    winners.forEach(w => {
+      const idx = remainingKIDS.findIndex(k => k.name === w.name);
+      if (idx !== -1) remainingKIDS.splice(idx, 1);
+    });
+
+    // 抽奖结束后自动同步云端（如果启用）
+    if (cloudEnabled) {
+      cloudBackup(false);
+    }
+
+  }, 800);
+});
+
+// ================= 关闭结果面板 =================
+function closeBoard() {
+  const board = document.getElementById('resultBoard');
+  if (board.style.display === 'none') return;
+  
+  board.style.display = 'none';
+
+  if (remainingKIDS.length === 0) {
+    document.getElementById('startBtn').style.display = 'none';
+    board.innerHTML = '<div style="font-size:36px; color:#ffd700;">🎊 全部抽完啦！</div>';
+    board.style.display = 'block';
+    document.getElementById('closeBoardBtn').style.display = 'none';
+    board.style.cursor = 'default';
+    board.onclick = null;
+  } else {
+    document.getElementById('startBtn').style.display = 'flex'; 
+    document.getElementById('startBtn').disabled = false;
+  }
+}
+
+document.getElementById('closeBoardBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeBoard();
+});
+document.getElementById('resultBoard').addEventListener('click', () => {
+  closeBoard();
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (isSpinning) return;
+  resetGame();
+  if (cloudEnabled) cloudBackup(false);
+});
+
+// ================= 云端备份与恢复 =================
+
+// 构造云端数据
+function buildCloudPayload() {
+  return {
+    config_key: CONFIG_KEY,
+    prizes: prizes,
+    kids: KIDS,
+    remaining_kids: remainingKIDS,
+    draw_count: drawCount,
+    updated_at: new Date().toISOString()
+  };
+}
+
+// 云端备份（silent=true 时不弹成功提示）
+async function cloudBackup(silent = false) {
+  if (!cloudEnabled) {
+    if (!silent) alert('⚠️ 未配置 Supabase，无法备份到云端。');
+    return;
+  }
+  if (isSpinning) {
+    if (!silent) alert('抽奖进行中，无法备份。请先停止抽奖。');
+    return;
+  }
+  showCloudStatus('正在保存到云端…', 'loading');
+  try {
+    const payload = buildCloudPayload();
+    const { error } = await supabase
+      .from(TABLE_NAME)
+      .upsert(payload, { onConflict: 'config_key' });
+    if (error) throw error;
+    showCloudStatus('✅ 已保存到云端', 'ok');
+    if (!silent) alert('✅ 已保存到云端！');
+  } catch (e) {
+    console.error('云端备份失败:', e);
+    showCloudStatus('❌ 备份失败：' + (e.message || '未知错误'), 'err');
+    if (!silent) alert('❌ 云端备份失败：' + (e.message || '未知错误'));
+  }
+}
+
+// 云端恢复
+async function cloudRestore() {
+  if (!cloudEnabled) {
+    alert('⚠️ 未配置 Supabase，无法从云端恢复。');
+    return;
+  }
+  if (isSpinning) {
+    alert('抽奖进行中，无法恢复。请先停止抽奖。');
+    return;
+  }
+  showCloudStatus('正在从云端读取…', 'loading');
+  try {
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .select('*')
+      .eq('config_key', CONFIG_KEY)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      showCloudStatus('⚠️ 云端暂无备份数据', 'err');
+      alert('云端暂无备份数据，请先点击「备份到云端」。');
+      return;
+    }
+    if (!confirm('确定从云端恢复吗？当前状态将被覆盖。')) return;
+
+    // 应用数据
+    prizes = Array.isArray(data.prizes) ? data.prizes : prizes;
+    KIDS = Array.isArray(data.kids) ? data.kids : [];
+    remainingKIDS = Array.isArray(data.remaining_kids) && data.remaining_kids.length > 0
+      ? data.remaining_kids
+      : [...KIDS];
+    drawCount = data.draw_count || 1;
+
+    // 刷新设置面板
+    renderPrizes();
+    nameInputEl.value = KIDS.map(k => k.name).join('\n');
+    peopleCountEl.textContent = KIDS.length;
+    drawCountInput.value = drawCount;
+
+    // 重建球体
+    resetGame(); // 注意 resetGame 会重建 remainingKIDS = [...KIDS]，所以需要再次恢复 remainingKIDS
+    remainingKIDS = Array.isArray(data.remaining_kids) && data.remaining_kids.length > 0
+      ? data.remaining_kids
+      : [...KIDS];
+
+    showCloudStatus('🔄 云端恢复成功', 'ok');
+    alert('🔄 云端恢复成功！');
+  } catch (e) {
+    console.error('云端恢复失败:', e);
+    showCloudStatus('❌ 恢复失败：' + (e.message || '未知错误'), 'err');
+    alert('❌ 云端恢复失败：' + (e.message || '未知错误'));
+  }
+}
+
+// 绑定云端按钮
+document.getElementById('cloudBackupBtn').addEventListener('click', () => cloudBackup(false));
+document.getElementById('cloudRestoreBtn').addEventListener('click', cloudRestore);
+
+// ================= 页面加载时自动从云端拉取 =================
+async function initFromCloud() {
+  if (!cloudEnabled) {
+    // 未配置 Supabase，使用演示数据
+    console.warn('未配置 Supabase，使用本地演示数据');
+    let demoLines = [];
+    for (let i = 1; i <= 144; i++) demoLines.push(`小朋友${i}`);
+    nameInputEl.value = demoLines.join('\n');
+    document.getElementById('saveBtn').click();
+    return;
+  }
+
+  showCloudStatus('正在读取云端配置…', 'loading');
+  try {
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .select('*')
+      .eq('config_key', CONFIG_KEY)
+      .maybeSingle();
+    if (error) throw error;
+
+    if (data && Array.isArray(data.kids) && data.kids.length > 0) {
+      prizes = Array.isArray(data.prizes) ? data.prizes : prizes;
+      KIDS = data.kids;
+      remainingKIDS = Array.isArray(data.remaining_kids) && data.remaining_kids.length > 0
+        ? data.remaining_kids
+        : [...KIDS];
+      drawCount = data.draw_count || 1;
+
+      renderPrizes();
+      nameInputEl.value = KIDS.map(k => k.name).join('\n');
+      peopleCountEl.textContent = KIDS.length;
+      drawCountInput.value = drawCount;
+
+      // 构建球体（不重置 remainingKIDS）
+      cancelAnimationFrame(animFrame);
+      isSpinning = false;
+      document.getElementById('resultBoard').style.display = 'none';
+      document.getElementById('startBtn').style.display = 'flex';
+      document.getElementById('stopBtn').style.display = 'none';
+      document.getElementById('startBtn').disabled = false;
+      rebuildSphere();
+
+      showCloudStatus('✅ 已从云端加载配置', 'ok');
+      console.log('✅ 已从云端加载配置，人数：', KIDS.length, '剩余：', remainingKIDS.length);
+    } else {
+      // 云端无数据，使用演示数据
+      console.log('云端无数据，使用演示名单');
+      let demoLines = [];
+      for (let i = 1; i <= 144; i++) demoLines.push(`小朋友${i}`);
+      nameInputEl.value = demoLines.join('\n');
+      document.getElementById('saveBtn').click(); // 这个内部会触发 cloudBackup
+      showCloudStatus('📝 已创建演示数据并上传到云端', 'ok');
+    }
+  } catch (e) {
+    console.error('云端初始化失败:', e);
+    showCloudStatus('❌ 云端读取失败，使用本地演示', 'err');
+    // 降级：使用演示数据但不保存云端（避免写失败）
+    let demoLines = [];
+    for (let i = 1; i <= 144; i++) demoLines.push(`小朋友${i}`);
+    nameInputEl.value = demoLines.join('\n');
+    // 手动触发一次本地保存（不经过 cloudBackup）
+    const lines = nameInputEl.value.split('\n').map(l => l.trim()).filter(l => l);
+    KIDS = [];
+    let nameIndex = 0;
+    prizes.forEach((p, tierIndex) => {
+      for (let i = 0; i < p.count; i++) {
+        if (nameIndex >= lines.length) break;
+        KIDS.push({ name: lines[nameIndex], prizeName: p.name, tierIndex: tierIndex });
+        nameIndex++;
+      }
+    });
+    while (nameIndex < lines.length) {
+      KIDS.push({ name: lines[nameIndex], prizeName: prizes[prizes.length - 1]?.name || '参与奖', tierIndex: prizes.length - 1 });
+      nameIndex++;
+    }
+    resetGame();
+  }
+}
+
+// ================= 星空背景 =================
+const canvas = document.getElementById('stars');
+const ctx = canvas.getContext('2d');
+let stars = [];
+function initStars() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  stars = [];
+  for (let i = 0; i < 150; i++) {
+    stars.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, r: Math.random() * 2, speed: Math.random() * 0.5 + 0.1 });
+  }
+}
+function drawStars() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+  stars.forEach(s => {
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+    s.y -= s.speed;
+    if (s.y < 0) { s.y = canvas.height; s.x = Math.random() * canvas.width; }
+  });
+  requestAnimationFrame(drawStars);
+}
+window.addEventListener('resize', initStars);
+initStars();
+drawStars();
+
+// ================= 启动 =================
+initFromCloud();
+
 </script>
 </body>
 </html>
