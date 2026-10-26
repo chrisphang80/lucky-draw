@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>3D球体悬浮抽奖（音效+自适应版）</title>
+<title>3D球体悬浮抽奖 · 补抽版</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
   body { 
@@ -71,12 +71,13 @@
   .winner-name { font-size: 48px; font-weight: bold; color: #ffd700; text-shadow: 0 0 20px #ffd700; }
 
   /* 右下角控制 */
-  #cornerControls { position: absolute; bottom: 30px; right: 30px; z-index: 20; display: flex; gap: 10px; }
+  #cornerControls { position: absolute; bottom: 30px; right: 30px; z-index: 20; display: flex; gap: 10px; flex-wrap: wrap; }
   .btn-small { padding: 10px 20px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; color: #fff; }
   .btn-orange { background: #f39c12; }
   .btn-cyan { background: #00d2ff; }
   .btn-red { background: #e74c3c; }
   .btn-green { background: #2ecc71; }
+  .btn-purple { background: #9b59b6; }
 
   /* 设置面板 */
   #setup {
@@ -108,11 +109,31 @@
   #nameInput { width: 100%; height: 380px; padding: 15px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px; line-height: 1.6; resize: none; font-family: inherit; }
   .count-text { text-align: right; margin-top: 10px; color: #666; font-size: 14px; }
   
-  .draw-count-setting { margin-top: 20px; padding: 15px; background: #eef2f5; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; font-weight: bold; }
+  .draw-count-setting { margin-top: 20px; padding: 15px; background: #eef2f5; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; font-weight: bold; flex-wrap: wrap; gap: 10px;}
   .draw-count-setting input { width: 80px; padding: 8px; font-size: 16px; text-align: center; border: 1px solid #ccc; border-radius: 4px; }
 
   .setup-actions { max-width: 1100px; margin: 20px auto 0; display: flex; justify-content: flex-end; gap: 15px; }
   .setup-actions .btn { width: auto; height: auto; padding: 12px 30px; font-size: 18px; border-radius: 8px;}
+
+  /* 补抽弹窗 */
+  #absentModal {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.8); z-index: 600; display: none;
+    justify-content: center; align-items: center;
+  }
+  .modal-content {
+    background: #1e293b; border: 2px solid #f39c12; border-radius: 20px;
+    padding: 40px; max-width: 500px; width: 90%; text-align: center;
+    box-shadow: 0 0 60px rgba(243,156,18,0.4);
+  }
+  .modal-content h2 { color: #f39c12; margin-bottom: 20px; }
+  .modal-content p { color: #ccc; margin-bottom: 20px; font-size: 16px; line-height: 1.6; }
+  .modal-content input {
+    width: 120px; padding: 12px; font-size: 24px; text-align: center;
+    border: 2px solid #f39c12; border-radius: 10px; background: #0f172a; color: #fff;
+    margin-bottom: 20px;
+  }
+  .modal-btns { display: flex; gap: 15px; justify-content: center; }
 
   /* ================= 移动端自适应 (屏幕宽度小于 768px) ================= */
   @media (max-width: 768px) {
@@ -160,6 +181,20 @@
 <div id="cornerControls">
   <button class="btn-small btn-orange" id="resetBtn">重置</button>
   <button class="btn-small btn-cyan" id="settingBtn">设置名单</button>
+  <button class="btn-small btn-purple" id="absentBtn">未到补抽</button>
+</div>
+
+<!-- 未到补抽弹窗 -->
+<div id="absentModal">
+  <div class="modal-content">
+    <h2>⚠️ 未到学生补抽</h2>
+    <p>请输入剩余的礼物</p>
+    <input type="number" id="absentCount" value="1" min="1">
+    <div class="modal-btns">
+      <button class="btn-small btn-red" id="absentCancel">取消</button>
+      <button class="btn-small btn-green" id="absentConfirm">确认补抽</button>
+    </div>
+  </div>
 </div>
 
 <div id="setup">
@@ -201,7 +236,6 @@
 const AudioContext = window.AudioContext || window.webkitAudioContext;
 let audioCtx;
 
-// 在用户第一次交互时初始化音频（浏览器安全限制）
 function initAudio() {
   if (!audioCtx) {
     audioCtx = new AudioContext();
@@ -214,18 +248,14 @@ function playTone(freq, type, duration, vol) {
   const gainNode = audioCtx.createGain();
   osc.type = type;
   osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-  
   gainNode.gain.setValueAtTime(vol, audioCtx.currentTime);
   gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-  
   osc.connect(gainNode);
   gainNode.connect(audioCtx.destination);
-  
   osc.start();
   osc.stop(audioCtx.currentTime + duration);
 }
 
-// 开始音效（上升音）
 function playStartSound() {
   initAudio();
   if(!audioCtx) return;
@@ -234,21 +264,18 @@ function playStartSound() {
   setTimeout(() => playTone(800, 'sine', 0.4, 0.1), 200);
 }
 
-// 停止音效（刹车音）
 function playStopSound() {
   if(!audioCtx) return;
   playTone(300, 'sawtooth', 0.4, 0.1);
   setTimeout(() => playTone(200, 'sawtooth', 0.4, 0.1), 150);
 }
 
-// 中奖音效（叮咚和弦）
 function playWinSound() {
   if(!audioCtx) return;
-  const now = audioCtx.currentTime;
-  playTone(523.25, 'triangle', 0.6, 0.15); // C5
-  setTimeout(() => playTone(659.25, 'triangle', 0.6, 0.15), 100); // E5
-  setTimeout(() => playTone(783.99, 'triangle', 0.8, 0.15), 200); // G5
-  setTimeout(() => playTone(1046.50, 'triangle', 1.2, 0.15), 300); // C6
+  playTone(523.25, 'triangle', 0.6, 0.15);
+  setTimeout(() => playTone(659.25, 'triangle', 0.6, 0.15), 100);
+  setTimeout(() => playTone(783.99, 'triangle', 0.8, 0.15), 200);
+  setTimeout(() => playTone(1046.50, 'triangle', 1.2, 0.15), 300);
 }
 
 // ================= 核心数据 =================
@@ -258,6 +285,11 @@ let tags = [];
 let isSpinning = false;
 let animFrame;
 let drawCount = 1;
+
+// 暗抽模式变量
+let isAbsentMode = false; 
+let absentTargetCount = 0; 
+let secretPool = []; 
 
 let prizes = [
   { name: '🍬 小礼物（需努力）', count: 54 },
@@ -274,7 +306,6 @@ let currentSpeedX = targetSpeedX;
 let currentSpeedY = targetSpeedY;
 let currentRadius = 300;
 
-// 鼠标/触摸交互
 let mouseX = 0, mouseY = 0;
 let isMouseOver = false;
 
@@ -287,7 +318,6 @@ window.addEventListener('mousemove', (e) => {
 });
 window.addEventListener('mouseout', () => { isMouseOver = false; });
 
-// 手机触摸事件
 window.addEventListener('touchmove', (e) => {
   if (e.touches.length > 0) {
     const touch = e.touches[0];
@@ -393,6 +423,8 @@ document.getElementById('saveBtn').addEventListener('click', () => {
   }
 
   setupPanel.style.display = 'none';
+  isAbsentMode = false;
+  secretPool = [];
   resetGame();
 });
 
@@ -402,6 +434,9 @@ function resetGame() {
   isSpinning = false;
   remainingKIDS = [...KIDS];
   document.getElementById('resultBoard').style.display = 'none';
+  document.getElementById('resultGift').textContent = '';
+  document.getElementById('winnerNamesContainer').innerHTML = '';
+  document.getElementById('closeBoardBtn').style.display = 'flex';
   document.getElementById('startBtn').style.display = 'flex'; 
   document.getElementById('stopBtn').style.display = 'none';
   document.getElementById('startBtn').disabled = false;
@@ -415,7 +450,6 @@ function resetGame() {
 
   if (remainingKIDS.length === 0) return;
 
-  // 根据屏幕大小自适应球体半径
   const isMobile = window.innerWidth < 768;
   currentRadius = isMobile ? Math.min(180, window.innerWidth * 0.4) : Math.min(400, window.innerWidth / 4);
 
@@ -446,13 +480,10 @@ function resetGame() {
   animateSphere();
 }
 
-// 监听屏幕尺寸变化，重新计算半径
 window.addEventListener('resize', () => {
   if (!isSpinning && tags.length > 0) {
     const isMobile = window.innerWidth < 768;
     const newR = isMobile ? Math.min(180, window.innerWidth * 0.4) : Math.min(400, window.innerWidth / 4);
-    
-    // 按比例缩放所有名字的坐标
     const ratio = newR / currentRadius;
     tags.forEach(tag => {
       tag.x *= ratio;
@@ -529,7 +560,7 @@ function animateSphere() {
 document.getElementById('startBtn').addEventListener('click', () => {
   if (isSpinning || remainingKIDS.length === 0) return;
   
-  playStartSound(); // 播放开始音效
+  playStartSound();
 
   isSpinning = true;
   document.getElementById('startBtn').style.display = 'none';
@@ -543,36 +574,54 @@ document.getElementById('startBtn').addEventListener('click', () => {
 document.getElementById('stopBtn').addEventListener('click', () => {
   if (!isSpinning) return;
   
-  playStopSound(); // 播放停止音效
+  playStopSound();
 
   isSpinning = false;
   document.getElementById('stopBtn').style.display = 'none';
   targetSpeedX = 0.002;
   targetSpeedY = 0.005;
 
-  const minTier = Math.min(...remainingKIDS.map(k => k.tierIndex));
-  const lowestTierKIDS = remainingKIDS.filter(k => k.tierIndex === minTier);
-  
-  const actualDrawCount = Math.min(drawCount, lowestTierKIDS.length);
-  const shuffledTier = [...lowestTierKIDS].sort(() => 0.5 - Math.random());
-  const winners = shuffledTier.slice(0, actualDrawCount);
+  let winners = [];
+  let prizeName = '';
 
+  if (isAbsentMode) {
+    // ===== 秘密暗抽模式：偷偷从暗池里抽 =====
+    const shuffled = [...secretPool].sort(() => 0.5 - Math.random());
+    winners = shuffled.slice(0, absentTargetCount);
+    prizeName = '未到补抽结果';
+    
+    // 抽完退出暗抽模式
+    isAbsentMode = false;
+    secretPool = [];
+  } else {
+    // ===== 正常抽奖逻辑 =====
+    const minTier = Math.min(...remainingKIDS.map(k => k.tierIndex));
+    const lowestTierKIDS = remainingKIDS.filter(k => k.tierIndex === minTier);
+    
+    const actualDrawCount = Math.min(drawCount, lowestTierKIDS.length);
+    const shuffledTier = [...lowestTierKIDS].sort(() => 0.5 - Math.random());
+    winners = shuffledTier.slice(0, actualDrawCount);
+    prizeName = winners[0]?.prizeName || '未知奖项';
+  }
+
+  // 高亮中奖者
   const winnerTags = winners.map(w => tags.find(t => t.name === w.name));
-
   winnerTags.forEach(tag => {
-    tag.el.classList.add('winner-tag');
-    tag.el.style.color = '#ffd700';
-    tag.el.style.textShadow = '0 0 15px #ffd700, 0 0 30px #ff8c00';
+    if (tag) {
+      tag.el.classList.add('winner-tag');
+      tag.el.style.color = '#ffd700';
+      tag.el.style.textShadow = '0 0 15px #ffd700, 0 0 30px #ff8c00';
+    }
   });
 
   setTimeout(() => {
-    playWinSound(); // 播放中奖音效
+    playWinSound();
 
     const board = document.getElementById('resultBoard');
     const namesContainer = document.getElementById('winnerNamesContainer');
     namesContainer.innerHTML = '';
     
-    document.getElementById('resultGift').textContent = `获得：${winners[0].prizeName}`;
+    document.getElementById('resultGift').textContent = `获得：${prizeName}`;
     
     winners.forEach(w => {
       const nameSpan = document.createElement('div');
@@ -582,7 +631,11 @@ document.getElementById('stopBtn').addEventListener('click', () => {
     });
     
     board.style.display = 'block';
+    document.getElementById('closeBoardBtn').style.display = 'flex';
+    board.style.cursor = 'pointer';
+    board.onclick = () => closeBoard();
 
+    // 将中奖者从剩余池中移除
     winners.forEach(w => {
       const idx = remainingKIDS.findIndex(k => k.name === w.name);
       if (idx !== -1) remainingKIDS.splice(idx, 1);
@@ -600,7 +653,10 @@ function closeBoard() {
 
   if (remainingKIDS.length === 0) {
     document.getElementById('startBtn').style.display = 'none';
-    board.innerHTML = '<div style="font-size:36px; color:#ffd700;">🎊 全部抽完啦！</div>';
+    // 不要用 innerHTML 覆盖整个结果面板，否则会删除 winnerNamesContainer，
+    // 后续重置或补抽时就无法再显示中奖者姓名。
+    document.getElementById('resultGift').textContent = '🎊 全部抽完啦！';
+    document.getElementById('winnerNamesContainer').innerHTML = '';
     board.style.display = 'block';
     document.getElementById('closeBoardBtn').style.display = 'none';
     board.style.cursor = 'default';
@@ -621,7 +677,58 @@ document.getElementById('resultBoard').addEventListener('click', () => {
 
 document.getElementById('resetBtn').addEventListener('click', () => {
   if (isSpinning) return;
+  isAbsentMode = false;
+  secretPool = [];
   resetGame();
+});
+
+// ================= 未到补抽功能 =================
+const absentModal = document.getElementById('absentModal');
+const absentCountInput = document.getElementById('absentCount');
+const absentBtn = document.getElementById('absentBtn');
+const absentCancel = document.getElementById('absentCancel');
+const absentConfirm = document.getElementById('absentConfirm');
+
+// 点击未到补抽：游戏重置（名字变白），并弹出输入框
+absentBtn.addEventListener('click', () => {
+  if (isSpinning) return;
+  
+  isAbsentMode = false;
+  secretPool = [];
+  resetGame(); // 重置悬浮球，所有名字变白
+  
+  absentModal.style.display = 'flex';
+  absentCountInput.value = 1;
+});
+
+absentCancel.addEventListener('click', () => {
+  absentModal.style.display = 'none';
+});
+
+// 确认补抽数量：设好暗池，等待点开始/停止
+absentConfirm.addEventListener('click', () => {
+  const count = parseInt(absentCountInput.value);
+  if (isNaN(count) || count < 1) {
+    alert('请输入有效的礼物数量（≥1）');
+    return;
+  }
+
+  // 补抽池使用当前仍未中奖的所有人，不再限定为最后一个奖项。
+  // 这样即使新增“终极大奖”等奖项，也不会导致补抽只能抽到该奖项对应的名单。
+  secretPool = [...remainingKIDS];
+
+  if (secretPool.length === 0) {
+    alert('名单人数不足，无法补抽。');
+    absentModal.style.display = 'none';
+    return;
+  }
+
+  // 开启暗抽模式
+  isAbsentMode = true;
+  absentTargetCount = Math.min(count, secretPool.length);
+
+  // 关闭弹窗，让用户去点“开始”
+  absentModal.style.display = 'none';
 });
 
 // ================= 星空背景 =================
