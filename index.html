@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>3D球体悬浮抽奖（Supabase云端版）</title>
+<title>3D球体悬浮抽奖（音效+自适应版）</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
   body { 
@@ -71,15 +71,12 @@
   .winner-name { font-size: 48px; font-weight: bold; color: #ffd700; text-shadow: 0 0 20px #ffd700; }
 
   /* 右下角控制 */
-  #cornerControls { position: absolute; bottom: 30px; right: 30px; z-index: 20; display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  #cornerControls { position: absolute; bottom: 30px; right: 30px; z-index: 20; display: flex; gap: 10px; }
   .btn-small { padding: 10px 20px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; color: #fff; }
   .btn-orange { background: #f39c12; }
   .btn-cyan { background: #00d2ff; }
   .btn-red { background: #e74c3c; }
   .btn-green { background: #2ecc71; }
-  .btn-purple { background: #9b59b6; }
-  .btn-blue { background: #3498db; }
-  .btn-small:disabled { opacity: 0.5; cursor: not-allowed; }
 
   /* 设置面板 */
   #setup {
@@ -117,18 +114,6 @@
   .setup-actions { max-width: 1100px; margin: 20px auto 0; display: flex; justify-content: flex-end; gap: 15px; }
   .setup-actions .btn { width: auto; height: auto; padding: 12px 30px; font-size: 18px; border-radius: 8px;}
 
-  /* 云端状态提示条 */
-  #cloudStatus {
-    position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
-    background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2);
-    padding: 8px 20px; border-radius: 20px; font-size: 14px; z-index: 30;
-    display: none; white-space: nowrap;
-  }
-  #cloudStatus.show { display: block; }
-  #cloudStatus.ok { border-color: #2ecc71; color: #2ecc71; }
-  #cloudStatus.err { border-color: #e74c3c; color: #e74c3c; }
-  #cloudStatus.loading { border-color: #f39c12; color: #f39c12; }
-
   /* ================= 移动端自适应 (屏幕宽度小于 768px) ================= */
   @media (max-width: 768px) {
     .btn { width: 110px; height: 110px; font-size: 24px; border-width: 3px; }
@@ -140,7 +125,7 @@
     .winner-name { font-size: 28px; }
     #closeBoardBtn { width: 30px; height: 30px; font-size: 18px; top: 10px; right: 10px; }
 
-    #cornerControls { bottom: 15px; right: 15px; flex-direction: column; align-items: flex-end; gap: 6px; }
+    #cornerControls { bottom: 15px; right: 15px; flex-direction: column; }
     .btn-small { font-size: 14px; padding: 8px 15px; }
 
     /* 设置面板竖向排列 */
@@ -161,8 +146,6 @@
 <canvas id="stars"></canvas>
 <div id="sphereContainer"></div>
 
-<div id="cloudStatus"></div>
-
 <div id="controlArea">
   <button class="btn" id="startBtn">开始</button>
   <button class="btn" id="stopBtn">停止</button>
@@ -177,8 +160,6 @@
 <div id="cornerControls">
   <button class="btn-small btn-orange" id="resetBtn">重置</button>
   <button class="btn-small btn-cyan" id="settingBtn">设置名单</button>
-  <button class="btn-small btn-purple" id="cloudBackupBtn" title="保存当前状态到云端">☁️ 备份到云端</button>
-  <button class="btn-small btn-blue" id="cloudRestoreBtn" title="从云端恢复">☁️ 从云端恢复</button>
 </div>
 
 <div id="setup">
@@ -215,15 +196,16 @@
   </div>
 </div>
 
-<!-- Supabase JS SDK -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 // ================= 音效引擎 (Web Audio API) =================
 const AudioContext = window.AudioContext || window.webkitAudioContext;
 let audioCtx;
 
+// 在用户第一次交互时初始化音频（浏览器安全限制）
 function initAudio() {
-  if (!audioCtx) audioCtx = new AudioContext();
+  if (!audioCtx) {
+    audioCtx = new AudioContext();
+  }
 }
 
 function playTone(freq, type, duration, vol) {
@@ -232,14 +214,18 @@ function playTone(freq, type, duration, vol) {
   const gainNode = audioCtx.createGain();
   osc.type = type;
   osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  
   gainNode.gain.setValueAtTime(vol, audioCtx.currentTime);
   gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  
   osc.connect(gainNode);
   gainNode.connect(audioCtx.destination);
+  
   osc.start();
   osc.stop(audioCtx.currentTime + duration);
 }
 
+// 开始音效（上升音）
 function playStartSound() {
   initAudio();
   if(!audioCtx) return;
@@ -248,56 +234,21 @@ function playStartSound() {
   setTimeout(() => playTone(800, 'sine', 0.4, 0.1), 200);
 }
 
+// 停止音效（刹车音）
 function playStopSound() {
   if(!audioCtx) return;
   playTone(300, 'sawtooth', 0.4, 0.1);
   setTimeout(() => playTone(200, 'sawtooth', 0.4, 0.1), 150);
 }
 
+// 中奖音效（叮咚和弦）
 function playWinSound() {
   if(!audioCtx) return;
-  playTone(523.25, 'triangle', 0.6, 0.15);
-  setTimeout(() => playTone(659.25, 'triangle', 0.6, 0.15), 100);
-  setTimeout(() => playTone(783.99, 'triangle', 0.8, 0.15), 200);
-  setTimeout(() => playTone(1046.50, 'triangle', 1.2, 0.15), 300);
-}
-
-// ================= Supabase 配置 =================
-// ⚠️ 请替换为你自己的 Supabase 项目 URL 和 publishable/anon key
-const SUPABASE_URL = 'https://hdceixxribedvcsdkqsn.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_TjajpMbWA4Sj1Esr2VsuzA_hayTl0Yn';
-
-// 全局 supabase 客户端（若配置未填写，则 cloudEnabled = false）
-let supabase = null;
-let cloudEnabled = false;
-
-try {
-  if (SUPABASE_URL && !SUPABASE_URL.includes('你的项目ID') && SUPABASE_KEY && !SUPABASE_KEY.includes('你的')) {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    cloudEnabled = true;
-    console.log('✅ Supabase 客户端已初始化');
-  } else {
-    console.warn('⚠️ 未配置 Supabase URL/KEY，云端功能不可用，将使用本地演示模式。');
-  }
-} catch (e) {
-  console.error('Supabase 初始化失败:', e);
-  cloudEnabled = false;
-}
-
-// 表名（与 SQL 建表一致）
-const TABLE_NAME = 'draw_config';
-const CONFIG_KEY = 'main';
-
-// 云端状态提示
-const cloudStatusEl = document.getElementById('cloudStatus');
-let cloudStatusTimer = null;
-function showCloudStatus(msg, type = 'ok') {
-  cloudStatusEl.textContent = msg;
-  cloudStatusEl.className = 'show ' + type;
-  if (cloudStatusTimer) clearTimeout(cloudStatusTimer);
-  cloudStatusTimer = setTimeout(() => {
-    cloudStatusEl.className = '';
-  }, 3000);
+  const now = audioCtx.currentTime;
+  playTone(523.25, 'triangle', 0.6, 0.15); // C5
+  setTimeout(() => playTone(659.25, 'triangle', 0.6, 0.15), 100); // E5
+  setTimeout(() => playTone(783.99, 'triangle', 0.8, 0.15), 200); // G5
+  setTimeout(() => playTone(1046.50, 'triangle', 1.2, 0.15), 300); // C6
 }
 
 // ================= 核心数据 =================
@@ -323,6 +274,7 @@ let currentSpeedX = targetSpeedX;
 let currentSpeedY = targetSpeedY;
 let currentRadius = 300;
 
+// 鼠标/触摸交互
 let mouseX = 0, mouseY = 0;
 let isMouseOver = false;
 
@@ -335,6 +287,7 @@ window.addEventListener('mousemove', (e) => {
 });
 window.addEventListener('mouseout', () => { isMouseOver = false; });
 
+// 手机触摸事件
 window.addEventListener('touchmove', (e) => {
   if (e.touches.length > 0) {
     const touch = e.touches[0];
@@ -407,7 +360,7 @@ document.getElementById('cancelSetupBtn').addEventListener('click', () => {
   setupPanel.style.display = 'none';
 });
 
-// ================= 保存名单（本地应用） =================
+// ================= 保存名单 =================
 document.getElementById('saveBtn').addEventListener('click', () => {
   const lines = nameInputEl.value.split('\n').map(l => l.trim()).filter(l => l);
   if (lines.length === 0) { alert('请输入名单！'); return; }
@@ -441,11 +394,6 @@ document.getElementById('saveBtn').addEventListener('click', () => {
 
   setupPanel.style.display = 'none';
   resetGame();
-
-  // 保存到云端（如果启用）
-  if (cloudEnabled) {
-    cloudBackup(false); // 静默保存
-  }
 });
 
 // ================= 初始化与 3D 球体生成 =================
@@ -461,23 +409,17 @@ function resetGame() {
   targetSpeedX = 0.002;
   targetSpeedY = 0.005;
 
-  rebuildSphere();
-}
-
-function rebuildSphere() {
   const container = document.getElementById('sphereContainer');
   container.innerHTML = '';
   tags = [];
 
-  if (remainingKIDS.length === 0) {
-    return;
-  }
+  if (remainingKIDS.length === 0) return;
 
+  // 根据屏幕大小自适应球体半径
   const isMobile = window.innerWidth < 768;
   currentRadius = isMobile ? Math.min(180, window.innerWidth * 0.4) : Math.min(400, window.innerWidth / 4);
 
   const numTags = KIDS.length;
-  if (numTags === 0) return;
   const phi = Math.PI * (3 - Math.sqrt(5)); 
 
   KIDS.forEach((kid, i) => {
@@ -486,7 +428,7 @@ function rebuildSphere() {
     el.textContent = kid.name;
     container.appendChild(el);
 
-    const y = 1 - (i / Math.max(1, numTags - 1)) * 2; 
+    const y = 1 - (i / (numTags - 1)) * 2; 
     const radiusAtY = Math.sqrt(1 - y * y);
     const theta = phi * i;
     
@@ -504,11 +446,13 @@ function rebuildSphere() {
   animateSphere();
 }
 
+// 监听屏幕尺寸变化，重新计算半径
 window.addEventListener('resize', () => {
   if (!isSpinning && tags.length > 0) {
     const isMobile = window.innerWidth < 768;
     const newR = isMobile ? Math.min(180, window.innerWidth * 0.4) : Math.min(400, window.innerWidth / 4);
     
+    // 按比例缩放所有名字的坐标
     const ratio = newR / currentRadius;
     tags.forEach(tag => {
       tag.x *= ratio;
@@ -584,18 +528,23 @@ function animateSphere() {
 // ================= 按钮交互 =================
 document.getElementById('startBtn').addEventListener('click', () => {
   if (isSpinning || remainingKIDS.length === 0) return;
-  playStartSound();
+  
+  playStartSound(); // 播放开始音效
+
   isSpinning = true;
   document.getElementById('startBtn').style.display = 'none';
   document.getElementById('stopBtn').style.display = 'flex'; 
   document.getElementById('resultBoard').style.display = 'none';
+
   targetSpeedX = 0.15; 
   targetSpeedY = 0.3;
 });
 
 document.getElementById('stopBtn').addEventListener('click', () => {
   if (!isSpinning) return;
-  playStopSound();
+  
+  playStopSound(); // 播放停止音效
+
   isSpinning = false;
   document.getElementById('stopBtn').style.display = 'none';
   targetSpeedX = 0.002;
@@ -611,19 +560,19 @@ document.getElementById('stopBtn').addEventListener('click', () => {
   const winnerTags = winners.map(w => tags.find(t => t.name === w.name));
 
   winnerTags.forEach(tag => {
-    if (!tag) return;
     tag.el.classList.add('winner-tag');
     tag.el.style.color = '#ffd700';
     tag.el.style.textShadow = '0 0 15px #ffd700, 0 0 30px #ff8c00';
   });
 
   setTimeout(() => {
-    playWinSound();
+    playWinSound(); // 播放中奖音效
+
     const board = document.getElementById('resultBoard');
     const namesContainer = document.getElementById('winnerNamesContainer');
     namesContainer.innerHTML = '';
     
-    document.getElementById('resultGift').textContent = `获得：${winners[0]?.prizeName || ''}`;
+    document.getElementById('resultGift').textContent = `获得：${winners[0].prizeName}`;
     
     winners.forEach(w => {
       const nameSpan = document.createElement('div');
@@ -638,11 +587,6 @@ document.getElementById('stopBtn').addEventListener('click', () => {
       const idx = remainingKIDS.findIndex(k => k.name === w.name);
       if (idx !== -1) remainingKIDS.splice(idx, 1);
     });
-
-    // 抽奖结束后自动同步云端（如果启用）
-    if (cloudEnabled) {
-      cloudBackup(false);
-    }
 
   }, 800);
 });
@@ -678,186 +622,7 @@ document.getElementById('resultBoard').addEventListener('click', () => {
 document.getElementById('resetBtn').addEventListener('click', () => {
   if (isSpinning) return;
   resetGame();
-  if (cloudEnabled) cloudBackup(false);
 });
-
-// ================= 云端备份与恢复 =================
-
-// 构造云端数据
-function buildCloudPayload() {
-  return {
-    config_key: CONFIG_KEY,
-    prizes: prizes,
-    kids: KIDS,
-    remaining_kids: remainingKIDS,
-    draw_count: drawCount,
-    updated_at: new Date().toISOString()
-  };
-}
-
-// 云端备份（silent=true 时不弹成功提示）
-async function cloudBackup(silent = false) {
-  if (!cloudEnabled) {
-    if (!silent) alert('⚠️ 未配置 Supabase，无法备份到云端。');
-    return;
-  }
-  if (isSpinning) {
-    if (!silent) alert('抽奖进行中，无法备份。请先停止抽奖。');
-    return;
-  }
-  showCloudStatus('正在保存到云端…', 'loading');
-  try {
-    const payload = buildCloudPayload();
-    const { error } = await supabase
-      .from(TABLE_NAME)
-      .upsert(payload, { onConflict: 'config_key' });
-    if (error) throw error;
-    showCloudStatus('✅ 已保存到云端', 'ok');
-    if (!silent) alert('✅ 已保存到云端！');
-  } catch (e) {
-    console.error('云端备份失败:', e);
-    showCloudStatus('❌ 备份失败：' + (e.message || '未知错误'), 'err');
-    if (!silent) alert('❌ 云端备份失败：' + (e.message || '未知错误'));
-  }
-}
-
-// 云端恢复
-async function cloudRestore() {
-  if (!cloudEnabled) {
-    alert('⚠️ 未配置 Supabase，无法从云端恢复。');
-    return;
-  }
-  if (isSpinning) {
-    alert('抽奖进行中，无法恢复。请先停止抽奖。');
-    return;
-  }
-  showCloudStatus('正在从云端读取…', 'loading');
-  try {
-    const { data, error } = await supabase
-      .from(TABLE_NAME)
-      .select('*')
-      .eq('config_key', CONFIG_KEY)
-      .maybeSingle();
-    if (error) throw error;
-    if (!data) {
-      showCloudStatus('⚠️ 云端暂无备份数据', 'err');
-      alert('云端暂无备份数据，请先点击「备份到云端」。');
-      return;
-    }
-    if (!confirm('确定从云端恢复吗？当前状态将被覆盖。')) return;
-
-    // 应用数据
-    prizes = Array.isArray(data.prizes) ? data.prizes : prizes;
-    KIDS = Array.isArray(data.kids) ? data.kids : [];
-    remainingKIDS = Array.isArray(data.remaining_kids) && data.remaining_kids.length > 0
-      ? data.remaining_kids
-      : [...KIDS];
-    drawCount = data.draw_count || 1;
-
-    // 刷新设置面板
-    renderPrizes();
-    nameInputEl.value = KIDS.map(k => k.name).join('\n');
-    peopleCountEl.textContent = KIDS.length;
-    drawCountInput.value = drawCount;
-
-    // 重建球体
-    resetGame(); // 注意 resetGame 会重建 remainingKIDS = [...KIDS]，所以需要再次恢复 remainingKIDS
-    remainingKIDS = Array.isArray(data.remaining_kids) && data.remaining_kids.length > 0
-      ? data.remaining_kids
-      : [...KIDS];
-
-    showCloudStatus('🔄 云端恢复成功', 'ok');
-    alert('🔄 云端恢复成功！');
-  } catch (e) {
-    console.error('云端恢复失败:', e);
-    showCloudStatus('❌ 恢复失败：' + (e.message || '未知错误'), 'err');
-    alert('❌ 云端恢复失败：' + (e.message || '未知错误'));
-  }
-}
-
-// 绑定云端按钮
-document.getElementById('cloudBackupBtn').addEventListener('click', () => cloudBackup(false));
-document.getElementById('cloudRestoreBtn').addEventListener('click', cloudRestore);
-
-// ================= 页面加载时自动从云端拉取 =================
-async function initFromCloud() {
-  if (!cloudEnabled) {
-    // 未配置 Supabase，使用演示数据
-    console.warn('未配置 Supabase，使用本地演示数据');
-    let demoLines = [];
-    for (let i = 1; i <= 144; i++) demoLines.push(`小朋友${i}`);
-    nameInputEl.value = demoLines.join('\n');
-    document.getElementById('saveBtn').click();
-    return;
-  }
-
-  showCloudStatus('正在读取云端配置…', 'loading');
-  try {
-    const { data, error } = await supabase
-      .from(TABLE_NAME)
-      .select('*')
-      .eq('config_key', CONFIG_KEY)
-      .maybeSingle();
-    if (error) throw error;
-
-    if (data && Array.isArray(data.kids) && data.kids.length > 0) {
-      prizes = Array.isArray(data.prizes) ? data.prizes : prizes;
-      KIDS = data.kids;
-      remainingKIDS = Array.isArray(data.remaining_kids) && data.remaining_kids.length > 0
-        ? data.remaining_kids
-        : [...KIDS];
-      drawCount = data.draw_count || 1;
-
-      renderPrizes();
-      nameInputEl.value = KIDS.map(k => k.name).join('\n');
-      peopleCountEl.textContent = KIDS.length;
-      drawCountInput.value = drawCount;
-
-      // 构建球体（不重置 remainingKIDS）
-      cancelAnimationFrame(animFrame);
-      isSpinning = false;
-      document.getElementById('resultBoard').style.display = 'none';
-      document.getElementById('startBtn').style.display = 'flex';
-      document.getElementById('stopBtn').style.display = 'none';
-      document.getElementById('startBtn').disabled = false;
-      rebuildSphere();
-
-      showCloudStatus('✅ 已从云端加载配置', 'ok');
-      console.log('✅ 已从云端加载配置，人数：', KIDS.length, '剩余：', remainingKIDS.length);
-    } else {
-      // 云端无数据，使用演示数据
-      console.log('云端无数据，使用演示名单');
-      let demoLines = [];
-      for (let i = 1; i <= 144; i++) demoLines.push(`小朋友${i}`);
-      nameInputEl.value = demoLines.join('\n');
-      document.getElementById('saveBtn').click(); // 这个内部会触发 cloudBackup
-      showCloudStatus('📝 已创建演示数据并上传到云端', 'ok');
-    }
-  } catch (e) {
-    console.error('云端初始化失败:', e);
-    showCloudStatus('❌ 云端读取失败，使用本地演示', 'err');
-    // 降级：使用演示数据但不保存云端（避免写失败）
-    let demoLines = [];
-    for (let i = 1; i <= 144; i++) demoLines.push(`小朋友${i}`);
-    nameInputEl.value = demoLines.join('\n');
-    // 手动触发一次本地保存（不经过 cloudBackup）
-    const lines = nameInputEl.value.split('\n').map(l => l.trim()).filter(l => l);
-    KIDS = [];
-    let nameIndex = 0;
-    prizes.forEach((p, tierIndex) => {
-      for (let i = 0; i < p.count; i++) {
-        if (nameIndex >= lines.length) break;
-        KIDS.push({ name: lines[nameIndex], prizeName: p.name, tierIndex: tierIndex });
-        nameIndex++;
-      }
-    });
-    while (nameIndex < lines.length) {
-      KIDS.push({ name: lines[nameIndex], prizeName: prizes[prizes.length - 1]?.name || '参与奖', tierIndex: prizes.length - 1 });
-      nameIndex++;
-    }
-    resetGame();
-  }
-}
 
 // ================= 星空背景 =================
 const canvas = document.getElementById('stars');
@@ -885,9 +650,11 @@ window.addEventListener('resize', initStars);
 initStars();
 drawStars();
 
-// ================= 启动 =================
-initFromCloud();
-
+// 初始化演示数据
+let demoLines = [];
+for (let i = 1; i <= 144; i++) demoLines.push(`小朋友${i}`);
+nameInputEl.value = demoLines.join('\n');
+document.getElementById('saveBtn').click();
 </script>
 </body>
 </html>
