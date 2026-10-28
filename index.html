@@ -187,8 +187,8 @@
 <!-- 未到补抽弹窗 -->
 <div id="absentModal">
   <div class="modal-content">
-    <h2>⚠️ 未到学生补抽</h2>
-    <p>请输入剩余的礼物</p>
+    <h2>⚠️ 未到补抽</h2>
+    <p>请输入需要补抽的名额。</p>
     <input type="number" id="absentCount" value="1" min="1">
     <div class="modal-btns">
       <button class="btn-small btn-red" id="absentCancel">取消</button>
@@ -713,12 +713,17 @@ absentConfirm.addEventListener('click', () => {
     return;
   }
 
-  // 补抽池使用当前仍未中奖的所有人，不再限定为最后一个奖项。
-  // 这样即使新增“终极大奖”等奖项，也不会导致补抽只能抽到该奖项对应的名单。
-  secretPool = [...remainingKIDS];
+  // 未到补抽奖池：固定取老师上传名单（KIDS）最后 30 人。
+  // KIDS 保留老师上传名单的顺序，因此这里按名单末尾截取，不使用剩余未中奖名单。
+  const poolSize = Math.min(30, KIDS.length);
+  const lastThirtyNames = KIDS.slice(-poolSize);
+
+  // 只从名单最后 30 人中抽取；排除已经不在剩余名单中的人，避免重复中奖。
+  const remainingNames = new Set(remainingKIDS.map(k => k.name));
+  secretPool = lastThirtyNames.filter(k => remainingNames.has(k.name));
 
   if (secretPool.length === 0) {
-    alert('名单人数不足，无法补抽。');
+    alert('名单最后 30 人中没有可补抽的剩余人选。');
     absentModal.style.display = 'none';
     return;
   }
